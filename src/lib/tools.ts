@@ -1,5 +1,6 @@
 // Client-side tool dispatcher. Runs tool_calls returned by the model.
 import { useJarvis } from "@/store/jarvis";
+import { fetchCatalog, fetchSkill, searchCatalog } from "@/lib/skill-marketplace";
 
 export type ToolResult = { ok: boolean; result?: any; error?: string };
 
@@ -198,6 +199,60 @@ export async function executeTool(name: string, argsJson: string): Promise<ToolR
         if (r.status === 204) return { ok: true, result: { dispatched: true, workflow_id: args.workflow_id, ref: args.ref || "main" } };
         const data = await r.json().catch(() => ({}));
         return { ok: false, error: `GitHub ${r.status}: ${data.message || "dispatch failed"}` };
+      }
+
+      // ─── Skill marketplace (sickn33/antigravity-awesome-skills) ───
+      case "skill_search": {
+        const catalog = await fetchCatalog(!!args.refresh);
+        const hits = searchCatalog(catalog, args.query || "", args.limit || 30);
+        return {
+          ok: true,
+          result: {
+            total: catalog.length,
+            shown: hits.length,
+            query: args.query || "",
+            results: hits.map((h) => ({ id: h.id, name: h.name, url: h.url })),
+          },
+        };
+      }
+      case "skill_install": {
+        if (!args.id) return { ok: false, error: "id required (use skill_search to find one)" };
+        const sk = await fetchSkill(args.id);
+        s.installSkill(sk);
+        return {
+          ok: true,
+          result: {
+            installed: sk.id,
+            name: sk.name,
+            description: sk.description,
+            risk: sk.risk,
+            promptBytes: sk.prompt.length,
+          },
+        };
+      }
+      case "skill_uninstall": {
+        if (!args.id) return { ok: false, error: "id required" };
+        s.uninstallSkill(args.id);
+        return { ok: true, result: { uninstalled: args.id } };
+      }
+      case "skill_activate": {
+        if (!args.id) return { ok: false, error: "id required" };
+        const installed = s.installedSkills.find((x) => x.id === args.id);
+        if (!installed) return { ok: false, error: `Skill '${args.id}' not installed. Call skill_install first.` };
+        s.setActiveSkill(args.id);
+        return { ok: true, result: { active: args.id, name: installed.name } };
+      }
+      case "skill_deactivate": {
+        s.setActiveSkill(null);
+        return { ok: true, result: { active: null } };
+      }
+      case "skill_list_installed": {
+        return {
+          ok: true,
+          result: s.installedSkills.map((x) => ({
+            id: x.id, name: x.name, description: x.description, risk: x.risk,
+          })),
+        };
       }
 
       default:

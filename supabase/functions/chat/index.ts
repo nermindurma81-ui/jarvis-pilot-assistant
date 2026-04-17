@@ -204,6 +204,61 @@ const TOOL_DEFS = [
       parameters: { type: "object", properties: {} },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "skill_search",
+      description: "Search the antigravity-awesome-skills marketplace (1000+ skills). Returns matching skill IDs and names.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Substring to match against skill id/name. Empty = list all." },
+          limit: { type: "number", description: "Max results (default 30)." },
+          refresh: { type: "boolean", description: "Force re-fetch the catalog from GitHub." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "skill_install",
+      description: "Fetch a skill's SKILL.md from GitHub and install it locally so it can be activated. Use after skill_search.",
+      parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "skill_uninstall",
+      description: "Remove an installed marketplace skill.",
+      parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "skill_activate",
+      description: "Activate an installed skill. The skill's prompt becomes your system contract for the next turn.",
+      parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "skill_deactivate",
+      description: "Deactivate the currently active skill.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "skill_list_installed",
+      description: "List all installed marketplace skills (id, name, description, risk).",
+      parameters: { type: "object", properties: {} },
+    },
+  },
 ];
 
 const BASE_POLICY = `You are J.A.R.V.I.S v4 — an autonomous execution agent (not a chatbot).
