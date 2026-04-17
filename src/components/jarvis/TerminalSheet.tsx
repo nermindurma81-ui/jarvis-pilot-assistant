@@ -45,6 +45,9 @@ export const TerminalSheet = ({ open, onOpenChange }: Props) => {
   uploads                       list session uploads
   reset chat                    clear chat history
   model <id>                    set model
+  gh status                     github auth status
+  gh repo <owner/repo>          set default repo
+  gh signout                    clear github token
 `);
           break;
         case "clear":
