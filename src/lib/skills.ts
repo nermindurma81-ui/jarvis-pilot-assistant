@@ -186,4 +186,26 @@ Then call eval_response. Criteria: profile complete, exactly 5 insights, ≥1 ch
   },
 ];
 
-export const skillById = (id: string | null) => SKILLS.find((s) => s.id === id) ?? null;
+// Resolve a skill by id from BOTH built-ins AND installed marketplace skills.
+// Imported lazily here to avoid a circular dep with the store.
+export const skillById = (id: string | null): Skill | null => {
+  if (!id) return null;
+  const builtin = SKILLS.find((s) => s.id === id);
+  if (builtin) return builtin;
+  // Marketplace lookup — defer require so this module stays sync-importable.
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { useJarvis } = require("@/store/jarvis");
+    const inst = useJarvis.getState().installedSkills.find((s: any) => s.id === id);
+    if (inst) {
+      return {
+        id: inst.id,
+        name: inst.name,
+        icon: "🧩",
+        description: inst.description || "Marketplace skill",
+        prompt: inst.prompt,
+      };
+    }
+  } catch {}
+  return null;
+};
