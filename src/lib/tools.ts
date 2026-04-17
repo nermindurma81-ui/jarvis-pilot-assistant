@@ -309,6 +309,43 @@ function resolveRepo(args: any, g: NonNullable<ReturnType<typeof useJarvis.getSt
   return { owner, repo };
 }
 
+// Reconstruct a CatalogEntry from a stable id string so skill_install can be called
+// directly by the model without the agent passing the full entry object.
+async function resolveEntryFromId(id: string): Promise<CatalogEntry | null> {
+  if (id.startsWith("antigravity:")) {
+    const slug = id.slice("antigravity:".length);
+    return {
+      id, source: "antigravity", kind: "skill",
+      name: slug, description: "",
+      url: `https://github.com/sickn33/antigravity-awesome-skills/tree/main/skills/${slug}`,
+      rawUrl: `https://raw.githubusercontent.com/sickn33/antigravity-awesome-skills/main/skills/${slug}/SKILL.md`,
+    };
+  }
+  if (id.startsWith("skillkit:coll:")) {
+    const repo = id.slice("skillkit:coll:".length);
+    return {
+      id, source: "skillkit", kind: "collection", collectionRepo: repo,
+      name: repo, description: "",
+      url: `https://github.com/${repo}`, rawUrl: "",
+    };
+  }
+  if (id.startsWith("skillkit:")) {
+    // Format: skillkit:<owner>/<repo>:<path>
+    const rest = id.slice("skillkit:".length);
+    const colonIdx = rest.indexOf(":");
+    if (colonIdx < 0) return null;
+    const repo = rest.slice(0, colonIdx);
+    const path = rest.slice(colonIdx + 1);
+    return {
+      id, source: "skillkit", kind: "skill", collectionRepo: repo,
+      name: path.split("/").pop() || path, description: "",
+      url: `https://github.com/${repo}/tree/HEAD/${path}`,
+      rawUrl: `https://raw.githubusercontent.com/${repo}/HEAD/${path}/SKILL.md`,
+    };
+  }
+  return null;
+}
+
 export async function ghVerifyToken(token: string): Promise<{ login: string; scopes: string[] } | null> {
   try {
     const r = await fetch("https://api.github.com/user", {
