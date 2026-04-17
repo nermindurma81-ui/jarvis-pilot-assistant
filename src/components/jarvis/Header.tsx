@@ -1,13 +1,14 @@
 import { useJarvis, MODELS } from "@/store/jarvis";
-import { Settings2, Rocket, Terminal as TerminalIcon, Cpu } from "lucide-react";
+import { Settings2, Rocket, Terminal as TerminalIcon, Cpu, Store } from "lucide-react";
 
 type Props = {
   onOpenSettings: () => void;
   onOpenTerminal: () => void;
+  onOpenMarketplace: () => void;
 };
 
-export const Header = ({ onOpenSettings, onOpenTerminal }: Props) => {
-  const { model, setModel, autopilot, setAutopilot, github } = useJarvis();
+export const Header = ({ onOpenSettings, onOpenTerminal, onOpenMarketplace }: Props) => {
+  const { model, setModel, autopilot, setAutopilot, github, installedSkills } = useJarvis();
 
   return (
     <header className="flex items-center gap-2 px-3 sm:px-4 py-2.5 border-b border-primary/20 bg-background-elev/80 backdrop-blur-xl flex-shrink-0">
@@ -53,6 +54,14 @@ export const Header = ({ onOpenSettings, onOpenTerminal }: Props) => {
         </span>
       )}
 
+      <button onClick={onOpenMarketplace} title={`Skill Marketplace (${installedSkills.length} installed)`} className="relative p-1.5 rounded border border-primary/20 hover:border-primary/60 hover:bg-primary/10 text-primary transition">
+        <Store className="w-4 h-4" />
+        {installedSkills.length > 0 && (
+          <span className="absolute -top-1 -right-1 text-[9px] font-mono bg-primary text-background rounded-full w-3.5 h-3.5 flex items-center justify-center">
+            {installedSkills.length}
+          </span>
+        )}
+      </button>
       <button onClick={onOpenTerminal} title="Terminal" className="p-1.5 rounded border border-primary/20 hover:border-primary/60 hover:bg-primary/10 text-primary transition">
         <TerminalIcon className="w-4 h-4" />
       </button>
