@@ -41,8 +41,9 @@ export const SettingsSheet = ({ open, onOpenChange }: Props) => {
         </SheetHeader>
 
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="w-full justify-start rounded-none border-b border-primary/15 bg-background-elev/40 px-2 h-auto">
+          <TabsList className="w-full justify-start rounded-none border-b border-primary/15 bg-background-elev/40 px-2 h-auto flex-wrap">
             <TabsTrigger value="general" className="text-[11px]">General</TabsTrigger>
+            <TabsTrigger value="github" className="text-[11px]">GitHub</TabsTrigger>
             <TabsTrigger value="audit" className="text-[11px]">Audit</TabsTrigger>
             <TabsTrigger value="docs" className="text-[11px]">Docs</TabsTrigger>
             <TabsTrigger value="cli" className="text-[11px]">CLI</TabsTrigger>
