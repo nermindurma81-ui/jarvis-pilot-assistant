@@ -5,6 +5,7 @@ import { SkillBar } from "@/components/jarvis/SkillBar";
 import { Composer } from "@/components/jarvis/Composer";
 import { SettingsSheet } from "@/components/jarvis/SettingsSheet";
 import { TerminalSheet } from "@/components/jarvis/TerminalSheet";
+import { MarketplaceSheet } from "@/components/jarvis/MarketplaceSheet";
 import { useJarvis } from "@/store/jarvis";
 import { runAgent } from "@/lib/agent";
 import { toast } from "sonner";
@@ -12,6 +13,7 @@ import { toast } from "sonner";
 const Index = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
   const { addMessage, updateMessage, isAgentBusy, enqueue, drainQueue, uploads } = useJarvis();
 
   // Drain queue when agent becomes free
@@ -70,12 +72,17 @@ const Index = () => {
 
   return (
     <main className="flex flex-col h-screen bg-gradient-bg">
-      <Header onOpenSettings={() => setSettingsOpen(true)} onOpenTerminal={() => setTerminalOpen(true)} />
+      <Header
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenTerminal={() => setTerminalOpen(true)}
+        onOpenMarketplace={() => setMarketplaceOpen(true)}
+      />
       <SkillBar />
       <ChatStream />
       <Composer onSend={submit} />
       <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
       <TerminalSheet open={terminalOpen} onOpenChange={setTerminalOpen} />
+      <MarketplaceSheet open={marketplaceOpen} onOpenChange={setMarketplaceOpen} />
     </main>
   );
 };

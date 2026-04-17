@@ -186,4 +186,26 @@ Then call eval_response. Criteria: profile complete, exactly 5 insights, ≥1 ch
   },
 ];
 
-export const skillById = (id: string | null) => SKILLS.find((s) => s.id === id) ?? null;
+// Resolve a skill by id from BOTH built-ins AND installed marketplace skills.
+// We read the persisted store from localStorage to avoid a circular import.
+export const skillById = (id: string | null): Skill | null => {
+  if (!id) return null;
+  const builtin = SKILLS.find((s) => s.id === id);
+  if (builtin) return builtin;
+  try {
+    const raw = localStorage.getItem("jarvis-v4-store");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const installed = parsed?.state?.installedSkills?.find((s: any) => s.id === id);
+    if (installed) {
+      return {
+        id: installed.id,
+        name: installed.name,
+        icon: "🧩",
+        description: installed.description || "Marketplace skill",
+        prompt: installed.prompt,
+      };
+    }
+  } catch {}
+  return null;
+};

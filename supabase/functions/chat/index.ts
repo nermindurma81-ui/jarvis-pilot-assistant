@@ -204,6 +204,61 @@ const TOOL_DEFS = [
       parameters: { type: "object", properties: {} },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "skill_search",
+      description: "Search the antigravity-awesome-skills marketplace (1000+ skills). Returns matching skill IDs and names.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Substring to match against skill id/name. Empty = list all." },
+          limit: { type: "number", description: "Max results (default 30)." },
+          refresh: { type: "boolean", description: "Force re-fetch the catalog from GitHub." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "skill_install",
+      description: "Fetch a skill's SKILL.md from GitHub and install it locally so it can be activated. Use after skill_search.",
+      parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "skill_uninstall",
+      description: "Remove an installed marketplace skill.",
+      parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "skill_activate",
+      description: "Activate an installed skill. The skill's prompt becomes your system contract for the next turn.",
+      parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "skill_deactivate",
+      description: "Deactivate the currently active skill.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "skill_list_installed",
+      description: "List all installed marketplace skills (id, name, description, risk).",
+      parameters: { type: "object", properties: {} },
+    },
+  },
 ];
 
 const BASE_POLICY = `You are J.A.R.V.I.S v4 — an autonomous execution agent (not a chatbot).
@@ -218,7 +273,7 @@ ABSOLUTE RULES:
    c) If a tool is missing or fails — try ALTERNATIVE PATH (different tool, manual reasoning, http_fetch, run_js).
    d) Never stop on first error. At least 2 alternative attempts before giving up.
    e) Always finish with eval_response.
-5. USE TOOLS LIBERALLY. doc_save important results. write_file_artifact for deliverables. http_fetch (allowlist) for external data. run_js for calc/parse. gh_create_issue / gh_create_pr / gh_workflow_dispatch hit the REAL GitHub REST API using the user's PAT — no audit gate; if no PAT is set the tool returns an error you must surface and ask user to configure it in Settings → GitHub.
+5. USE TOOLS LIBERALLY. doc_save important results. write_file_artifact for deliverables. http_fetch (allowlist) for external data. run_js for calc/parse. gh_create_issue / gh_create_pr / gh_workflow_dispatch hit the REAL GitHub REST API using the user's PAT — no audit gate; if no PAT is set the tool returns an error you must surface and ask user to configure it in Settings → GitHub. SKILL MARKETPLACE: skill_search → skill_install → skill_activate are real tools that fetch skills from github.com/sickn33/antigravity-awesome-skills (1000+ skills). When a user asks for a capability not covered by a built-in skill, search the marketplace, install the best match, activate it, then execute.
 6. CONCISE STYLE. Bosnian/Croatian when user writes in it. No filler. No "kao AI ja..." disclaimers.
 7. CODE BLOCKS in proper triple-backtick fences with language tag.`;
 

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { FetchedSkill } from "@/lib/skill-marketplace";
 
 export type ChatMessage = {
   id: string;
@@ -37,6 +38,7 @@ type Store = {
   evalRequired: boolean;
   audit: AuditFlags;
   activeSkill: string | null;
+  installedSkills: FetchedSkill[];
   // Data
   docs: JarvisDoc[];
   uploads: UploadedFile[];
@@ -60,6 +62,8 @@ type Store = {
   addUpload: (u: UploadedFile) => void;
   removeUpload: (name: string) => void;
   setGithub: (g: GithubAuth) => void;
+  installSkill: (s: FetchedSkill) => void;
+  uninstallSkill: (id: string) => void;
 };
 
 export const useJarvis = create<Store>()(
@@ -83,6 +87,7 @@ export const useJarvis = create<Store>()(
         ],
       },
       activeSkill: null,
+      installedSkills: [],
       docs: [],
       uploads: [],
       github: null,
@@ -117,6 +122,13 @@ export const useJarvis = create<Store>()(
       addUpload: (u) => set((s) => ({ uploads: [...s.uploads.filter((x) => x.name !== u.name), u] })),
       removeUpload: (name) => set((s) => ({ uploads: s.uploads.filter((u) => u.name !== name) })),
       setGithub: (g) => set({ github: g }),
+      installSkill: (sk) =>
+        set((s) => ({ installedSkills: [sk, ...s.installedSkills.filter((x) => x.id !== sk.id)] })),
+      uninstallSkill: (id) =>
+        set((s) => ({
+          installedSkills: s.installedSkills.filter((x) => x.id !== id),
+          activeSkill: s.activeSkill === id ? null : s.activeSkill,
+        })),
     }),
     {
       name: "jarvis-v4-store",
@@ -127,6 +139,7 @@ export const useJarvis = create<Store>()(
         evalRequired: s.evalRequired,
         audit: s.audit,
         activeSkill: s.activeSkill,
+        installedSkills: s.installedSkills,
         docs: s.docs,
         uploads: s.uploads,
         github: s.github,
