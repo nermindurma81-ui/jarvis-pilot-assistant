@@ -1,0 +1,11 @@
+{
+  "name": "J.A.R.V.I.S v4 — 2026",
+  "short_name": "JARVIS v4",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000510",
+  "theme_color": "#000510",
+  "icons": [
+    { "src": "/favicon.ico", "sizes": "64x64", "type": "image/x-icon" }
+  ]
+}
