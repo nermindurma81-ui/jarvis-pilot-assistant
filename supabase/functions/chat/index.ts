@@ -140,6 +140,70 @@ const TOOL_DEFS = [
       parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "gh_create_issue",
+      description: "Create a real GitHub issue via REST API. Requires user PAT configured in app Settings.",
+      parameters: {
+        type: "object",
+        properties: {
+          owner: { type: "string", description: "Repo owner/org. Defaults to user's defaultRepo owner." },
+          repo: { type: "string", description: "Repo name. Defaults to user's defaultRepo name." },
+          title: { type: "string" },
+          body: { type: "string" },
+          labels: { type: "array", items: { type: "string" } },
+        },
+        required: ["title", "body"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "gh_create_pr",
+      description: "Create a real GitHub pull request via REST API. Requires PAT.",
+      parameters: {
+        type: "object",
+        properties: {
+          owner: { type: "string" },
+          repo: { type: "string" },
+          title: { type: "string" },
+          body: { type: "string" },
+          head: { type: "string", description: "Source branch." },
+          base: { type: "string", description: "Target branch (default: main)." },
+          draft: { type: "boolean" },
+        },
+        required: ["title", "head"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "gh_workflow_dispatch",
+      description: "Trigger a real GitHub Actions workflow_dispatch event via REST API. Requires PAT.",
+      parameters: {
+        type: "object",
+        properties: {
+          owner: { type: "string" },
+          repo: { type: "string" },
+          workflow_id: { type: "string", description: "Filename (e.g. 'ci.yml') or numeric workflow id." },
+          ref: { type: "string", description: "Branch or tag (default: main)." },
+          inputs: { type: "object", description: "Workflow inputs map." },
+        },
+        required: ["workflow_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "gh_status",
+      description: "Return current GitHub auth status (logged in, user, defaultRepo).",
+      parameters: { type: "object", properties: {} },
+    },
+  },
 ];
 
 const BASE_POLICY = `You are J.A.R.V.I.S v4 — an autonomous execution agent (not a chatbot).
