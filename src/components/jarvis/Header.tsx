@@ -7,8 +7,7 @@ type Props = {
 };
 
 export const Header = ({ onOpenSettings, onOpenTerminal }: Props) => {
-  const { model, setModel, autopilot, setAutopilot, audit } = useJarvis();
-  const allowedTools = audit.repoWrite ? "REPO+RW" : "RO";
+  const { model, setModel, autopilot, setAutopilot, github } = useJarvis();
 
   return (
     <header className="flex items-center gap-2 px-3 sm:px-4 py-2.5 border-b border-primary/20 bg-background-elev/80 backdrop-blur-xl flex-shrink-0">
@@ -44,9 +43,15 @@ export const Header = ({ onOpenSettings, onOpenTerminal }: Props) => {
         <span className="hidden sm:inline">{autopilot ? "AUTO" : "AUTO"}</span>
       </button>
 
-      <span className="hidden sm:inline-flex text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-success/40 bg-success/10 text-success">
-        {allowedTools}
-      </span>
+      {github ? (
+        <span title={`GitHub: ${github.user}${github.defaultRepo ? " · " + github.defaultRepo : ""}`} className="hidden sm:inline-flex items-center gap-1 text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-success/40 bg-success/10 text-success">
+          ⌥ {github.user}
+        </span>
+      ) : (
+        <span title="GitHub not configured — open Settings → GitHub" className="hidden sm:inline-flex text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border border-warning/40 bg-warning/10 text-warning">
+          NO-GH
+        </span>
+      )}
 
       <button onClick={onOpenTerminal} title="Terminal" className="p-1.5 rounded border border-primary/20 hover:border-primary/60 hover:bg-primary/10 text-primary transition">
         <TerminalIcon className="w-4 h-4" />

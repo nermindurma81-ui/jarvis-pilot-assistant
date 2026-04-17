@@ -24,6 +24,8 @@ export type AuditFlags = {
 
 export type UploadedFile = { name: string; url: string; size: number; type: string; textPreview?: string };
 
+export type GithubAuth = { token: string; user: string; defaultRepo?: string } | null;
+
 type Store = {
   // Chat
   messages: ChatMessage[];
@@ -38,6 +40,7 @@ type Store = {
   // Data
   docs: JarvisDoc[];
   uploads: UploadedFile[];
+  github: GithubAuth;
   // Mutators
   addMessage: (m: ChatMessage) => void;
   updateMessage: (id: string, patch: Partial<ChatMessage>) => void;
@@ -56,6 +59,7 @@ type Store = {
   deleteDoc: (name: string) => void;
   addUpload: (u: UploadedFile) => void;
   removeUpload: (name: string) => void;
+  setGithub: (g: GithubAuth) => void;
 };
 
 export const useJarvis = create<Store>()(
@@ -81,6 +85,7 @@ export const useJarvis = create<Store>()(
       activeSkill: null,
       docs: [],
       uploads: [],
+      github: null,
 
       addMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
       updateMessage: (id, patch) =>
@@ -111,6 +116,7 @@ export const useJarvis = create<Store>()(
       deleteDoc: (name) => set((s) => ({ docs: s.docs.filter((d) => d.name !== name) })),
       addUpload: (u) => set((s) => ({ uploads: [...s.uploads.filter((x) => x.name !== u.name), u] })),
       removeUpload: (name) => set((s) => ({ uploads: s.uploads.filter((u) => u.name !== name) })),
+      setGithub: (g) => set({ github: g }),
     }),
     {
       name: "jarvis-v4-store",
@@ -123,6 +129,7 @@ export const useJarvis = create<Store>()(
         activeSkill: s.activeSkill,
         docs: s.docs,
         uploads: s.uploads,
+        github: s.github,
       }),
     }
   )

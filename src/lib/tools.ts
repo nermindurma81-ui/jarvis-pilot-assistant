@@ -128,6 +128,78 @@ export async function executeTool(name: string, argsJson: string): Promise<ToolR
         }
       }
 
+
+      // ─── GitHub real REST API tools (PAT-based, single-user) ───
+      case "gh_status": {
+        const g = s.github;
+        return {
+          ok: true,
+          result: {
+            authenticated: !!g?.token,
+            user: g?.user || null,
+            defaultRepo: g?.defaultRepo || null,
+            tokenScopes: g?.token ? "(check via 'curl -I https://api.github.com -H \"Authorization: Bearer $TOKEN\"' for X-OAuth-Scopes)" : null,
+          },
+        };
+      }
+
+      case "gh_create_issue": {
+        const g = s.github;
+        if (!g?.token) return { ok: false, error: "No GitHub PAT. Open Settings → GitHub and paste a token with 'repo' scope." };
+        const { owner, repo } = resolveRepo(args, g);
+        if (!owner || !repo) return { ok: false, error: "owner+repo required (or set defaultRepo in Settings)." };
+        if (!args.title || !args.body) return { ok: false, error: "title+body required" };
+        const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues`, {
+          method: "POST",
+          headers: ghHeaders(g.token),
+          body: JSON.stringify({ title: args.title, body: args.body, labels: args.labels }),
+        });
+        const data = await r.json();
+        if (!r.ok) return { ok: false, error: `GitHub ${r.status}: ${data.message || JSON.stringify(data)}` };
+        return { ok: true, result: { number: data.number, url: data.html_url, state: data.state } };
+      }
+
+      case "gh_create_pr": {
+        const g = s.github;
+        if (!g?.token) return { ok: false, error: "No GitHub PAT configured." };
+        const { owner, repo } = resolveRepo(args, g);
+        if (!owner || !repo) return { ok: false, error: "owner+repo required" };
+        if (!args.title || !args.head) return { ok: false, error: "title+head required" };
+        const r = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
+          method: "POST",
+          headers: ghHeaders(g.token),
+          body: JSON.stringify({
+            title: args.title,
+            body: args.body || "",
+            head: args.head,
+            base: args.base || "main",
+            draft: !!args.draft,
+          }),
+        });
+        const data = await r.json();
+        if (!r.ok) return { ok: false, error: `GitHub ${r.status}: ${data.message || JSON.stringify(data)}` };
+        return { ok: true, result: { number: data.number, url: data.html_url, state: data.state, draft: data.draft } };
+      }
+
+      case "gh_workflow_dispatch": {
+        const g = s.github;
+        if (!g?.token) return { ok: false, error: "No GitHub PAT configured." };
+        const { owner, repo } = resolveRepo(args, g);
+        if (!owner || !repo) return { ok: false, error: "owner+repo required" };
+        if (!args.workflow_id) return { ok: false, error: "workflow_id required (e.g. 'ci.yml')" };
+        const r = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${encodeURIComponent(args.workflow_id)}/dispatches`,
+          {
+            method: "POST",
+            headers: ghHeaders(g.token),
+            body: JSON.stringify({ ref: args.ref || "main", inputs: args.inputs || {} }),
+          }
+        );
+        if (r.status === 204) return { ok: true, result: { dispatched: true, workflow_id: args.workflow_id, ref: args.ref || "main" } };
+        const data = await r.json().catch(() => ({}));
+        return { ok: false, error: `GitHub ${r.status}: ${data.message || "dispatch failed"}` };
+      }
+
       default:
         return { ok: false, error: `Unknown tool: ${name}` };
     }
@@ -146,4 +218,38 @@ function downloadFile(name: string, content: string, mime: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function ghHeaders(token: string) {
+  return {
+    "Authorization": `Bearer ${token}`,
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "Content-Type": "application/json",
+  };
+}
+
+function resolveRepo(args: any, g: NonNullable<ReturnType<typeof useJarvis.getState>["github"]>) {
+  let owner = args.owner as string | undefined;
+  let repo = args.repo as string | undefined;
+  if ((!owner || !repo) && g?.defaultRepo?.includes("/")) {
+    const [o, r] = g.defaultRepo.split("/");
+    owner = owner || o;
+    repo = repo || r;
+  }
+  return { owner, repo };
+}
+
+export async function ghVerifyToken(token: string): Promise<{ login: string; scopes: string[] } | null> {
+  try {
+    const r = await fetch("https://api.github.com/user", {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    const scopes = (r.headers.get("x-oauth-scopes") || "").split(",").map((s) => s.trim()).filter(Boolean);
+    return { login: data.login, scopes };
+  } catch {
+    return null;
+  }
 }

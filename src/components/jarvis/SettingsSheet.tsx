@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PROVIDERS } from "@/lib/cli-providers";
-import { Copy, Trash2, Plus, FileDown, FileText } from "lucide-react";
+import { ghVerifyToken } from "@/lib/tools";
+import { Copy, Trash2, Plus, FileDown, FileText, LogOut, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 type Props = { open: boolean; onOpenChange: (b: boolean) => void };
@@ -41,8 +42,9 @@ export const SettingsSheet = ({ open, onOpenChange }: Props) => {
         </SheetHeader>
 
         <Tabs defaultValue="general" className="w-full">
-          <TabsList className="w-full justify-start rounded-none border-b border-primary/15 bg-background-elev/40 px-2 h-auto">
+          <TabsList className="w-full justify-start rounded-none border-b border-primary/15 bg-background-elev/40 px-2 h-auto flex-wrap">
             <TabsTrigger value="general" className="text-[11px]">General</TabsTrigger>
+            <TabsTrigger value="github" className="text-[11px]">GitHub</TabsTrigger>
             <TabsTrigger value="audit" className="text-[11px]">Audit</TabsTrigger>
             <TabsTrigger value="docs" className="text-[11px]">Docs</TabsTrigger>
             <TabsTrigger value="cli" className="text-[11px]">CLI</TabsTrigger>
@@ -76,6 +78,10 @@ export const SettingsSheet = ({ open, onOpenChange }: Props) => {
                 </div>
               </div>
             )}
+          </TabsContent>
+
+          <TabsContent value="github" className="p-4 space-y-3">
+            <GithubPanel />
           </TabsContent>
 
           <TabsContent value="audit" className="p-4 space-y-3">
@@ -176,3 +182,101 @@ const Row = ({ label, hint, children }: { label: string; hint?: string; children
     {children}
   </div>
 );
+
+const GithubPanel = () => {
+  const { github, setGithub } = useJarvis();
+  const [tokenInput, setTokenInput] = useState("");
+  const [repoInput, setRepoInput] = useState(github?.defaultRepo || "");
+  const [verifying, setVerifying] = useState(false);
+
+  const verify = async () => {
+    const token = tokenInput.trim();
+    if (!token) return;
+    setVerifying(true);
+    const r = await ghVerifyToken(token);
+    setVerifying(false);
+    if (!r) {
+      toast.error("Token invalid (GitHub /user vratio non-200).");
+      return;
+    }
+    setGithub({ token, user: r.login, defaultRepo: repoInput.trim() || undefined });
+    setTokenInput("");
+    toast.success(`Signed in as ${r.login}. Scopes: ${r.scopes.join(", ") || "(none visible)"}`);
+  };
+
+  const saveRepo = () => {
+    if (!github) return;
+    setGithub({ ...github, defaultRepo: repoInput.trim() || undefined });
+    toast.success("Default repo saved");
+  };
+
+  const signOut = () => {
+    setGithub(null);
+    setTokenInput("");
+    toast.info("GitHub signed out");
+  };
+
+  if (!github) {
+    return (
+      <div className="space-y-3">
+        <div className="text-[12px] text-foreground-dim leading-relaxed">
+          Paste a <span className="text-primary font-mono">GitHub Personal Access Token</span> (Classic, scopes:{" "}
+          <code className="text-primary-glow">repo</code>, <code className="text-primary-glow">workflow</code>).
+          Get one at{" "}
+          <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=JARVIS%20v4" target="_blank" rel="noreferrer" className="text-primary underline">
+            github.com/settings/tokens
+          </a>
+          . Token is stored in browser localStorage only.
+        </div>
+        <Input
+          type="password"
+          value={tokenInput}
+          onChange={(e) => setTokenInput(e.target.value)}
+          placeholder="ghp_… or github_pat_…"
+          className="bg-background-elev2 border-primary/25 font-mono text-[12px]"
+        />
+        <Input
+          value={repoInput}
+          onChange={(e) => setRepoInput(e.target.value)}
+          placeholder="Default repo (owner/repo) — optional"
+          className="bg-background-elev2 border-primary/25 font-mono text-[12px]"
+        />
+        <Button onClick={verify} disabled={verifying || !tokenInput.trim()} className="w-full">
+          {verifying ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <Check className="w-3.5 h-3.5 mr-1" />}
+          Verify & save token
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 p-2.5 bg-success/10 border border-success/40 rounded">
+        <Check className="w-4 h-4 text-success" />
+        <div className="flex-1">
+          <div className="text-[12px] font-mono text-success">{github.user}</div>
+          <div className="text-[10px] text-foreground-dim">Authenticated · token in localStorage</div>
+        </div>
+        <button onClick={signOut} className="text-destructive/70 hover:text-destructive p-1" title="Sign out">
+          <LogOut className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <div>
+        <div className="text-[10px] font-mono uppercase text-primary/60 mb-1">Default repo (owner/repo)</div>
+        <div className="flex gap-1.5">
+          <Input
+            value={repoInput}
+            onChange={(e) => setRepoInput(e.target.value)}
+            placeholder="user/my-repo"
+            className="bg-background-elev2 border-primary/25 font-mono text-[12px] h-8"
+          />
+          <Button size="sm" onClick={saveRepo}>Save</Button>
+        </div>
+        <div className="text-[10px] text-foreground-dim mt-1 font-mono">
+          Tools <code className="text-primary-glow">gh_create_issue</code>, <code className="text-primary-glow">gh_create_pr</code>, <code className="text-primary-glow">gh_workflow_dispatch</code> use this when owner/repo isn't passed.
+        </div>
+      </div>
+    </div>
+  );
+};
