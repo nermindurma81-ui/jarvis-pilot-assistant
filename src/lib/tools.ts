@@ -201,32 +201,46 @@ export async function executeTool(name: string, argsJson: string): Promise<ToolR
         return { ok: false, error: `GitHub ${r.status}: ${data.message || "dispatch failed"}` };
       }
 
-      // ─── Skill marketplace (sickn33/antigravity-awesome-skills) ───
+      // ─── Skill marketplace (multi-source: antigravity + skillkit) ───
       case "skill_search": {
-        const catalog = await fetchCatalog(!!args.refresh);
-        const hits = searchCatalog(catalog, args.query || "", args.limit || 30);
+        const source: MarketSource = (args.source === "skillkit" ? "skillkit" : "antigravity");
+        const catalog = await fetchCatalog(source, !!args.refresh);
+        // If user asks skillkit + a query, also drill into the first matching collection.
+        let entries: CatalogEntry[] = catalog;
+        if (source === "skillkit" && args.collection) {
+          entries = await fetchCollectionSkills(args.collection);
+        }
+        const hits = searchCatalog(entries, args.query || "", args.limit || 30);
         return {
           ok: true,
           result: {
-            total: catalog.length,
+            source,
+            total: entries.length,
             shown: hits.length,
             query: args.query || "",
-            results: hits.map((h) => ({ id: h.id, name: h.name, url: h.url })),
+            results: hits.map((h) => ({
+              id: h.id, name: h.name, url: h.url, kind: h.kind,
+              collectionRepo: h.collectionRepo,
+            })),
           },
         };
       }
       case "skill_install": {
         if (!args.id) return { ok: false, error: "id required (use skill_search to find one)" };
-        const sk = await fetchSkill(args.id);
+        // Reconstruct a minimal CatalogEntry from id. id formats:
+        //   "antigravity:<slug>"  OR  "skillkit:<owner>/<repo>:<path>"  OR  "skillkit:coll:<owner>/<repo>"
+        const entry = await resolveEntryFromId(args.id);
+        if (!entry) return { ok: false, error: `Unknown skill id: ${args.id}` };
+        if (entry.kind === "collection") {
+          return { ok: false, error: "That id is a collection. Call skill_search with collection='<owner>/<repo>' to list its skills, then install one." };
+        }
+        const sk = await fetchSkill(entry);
         s.installSkill(sk);
         return {
           ok: true,
           result: {
-            installed: sk.id,
-            name: sk.name,
-            description: sk.description,
-            risk: sk.risk,
-            promptBytes: sk.prompt.length,
+            installed: sk.id, name: sk.name, description: sk.description,
+            risk: sk.risk, promptBytes: sk.prompt.length,
           },
         };
       }
