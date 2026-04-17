@@ -1,6 +1,6 @@
 // Client-side tool dispatcher. Runs tool_calls returned by the model.
 import { useJarvis } from "@/store/jarvis";
-import { fetchCatalog, fetchSkill, searchCatalog } from "@/lib/skill-marketplace";
+import { fetchCatalog, fetchCollectionSkills, fetchSkill, searchCatalog, type MarketSource, type CatalogEntry } from "@/lib/skill-marketplace";
 
 export type ToolResult = { ok: boolean; result?: any; error?: string };
 
