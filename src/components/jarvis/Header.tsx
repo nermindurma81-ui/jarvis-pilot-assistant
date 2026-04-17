@@ -7,8 +7,7 @@ type Props = {
 };
 
 export const Header = ({ onOpenSettings, onOpenTerminal }: Props) => {
-  const { model, setModel, autopilot, setAutopilot, audit } = useJarvis();
-  const allowedTools = audit.repoWrite ? "REPO+RW" : "RO";
+  const { model, setModel, autopilot, setAutopilot, github } = useJarvis();
 
   return (
     <header className="flex items-center gap-2 px-3 sm:px-4 py-2.5 border-b border-primary/20 bg-background-elev/80 backdrop-blur-xl flex-shrink-0">
