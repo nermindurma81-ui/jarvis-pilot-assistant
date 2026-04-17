@@ -24,6 +24,8 @@ export type AuditFlags = {
 
 export type UploadedFile = { name: string; url: string; size: number; type: string; textPreview?: string };
 
+export type GithubAuth = { token: string; user: string; defaultRepo?: string } | null;
+
 type Store = {
   // Chat
   messages: ChatMessage[];
@@ -38,6 +40,7 @@ type Store = {
   // Data
   docs: JarvisDoc[];
   uploads: UploadedFile[];
+  github: GithubAuth;
   // Mutators
   addMessage: (m: ChatMessage) => void;
   updateMessage: (id: string, patch: Partial<ChatMessage>) => void;
