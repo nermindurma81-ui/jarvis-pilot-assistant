@@ -1,6 +1,6 @@
 // Client-side tool dispatcher. Runs tool_calls returned by the model.
 import { useJarvis } from "@/store/jarvis";
-import { fetchCatalog, fetchSkill, searchCatalog } from "@/lib/skill-marketplace";
+import { fetchCatalog, fetchCollectionSkills, fetchSkill, searchCatalog, type MarketSource, type CatalogEntry } from "@/lib/skill-marketplace";
 
 export type ToolResult = { ok: boolean; result?: any; error?: string };
 
@@ -201,32 +201,46 @@ export async function executeTool(name: string, argsJson: string): Promise<ToolR
         return { ok: false, error: `GitHub ${r.status}: ${data.message || "dispatch failed"}` };
       }
 
-      // ─── Skill marketplace (sickn33/antigravity-awesome-skills) ───
+      // ─── Skill marketplace (multi-source: antigravity + skillkit) ───
       case "skill_search": {
-        const catalog = await fetchCatalog(!!args.refresh);
-        const hits = searchCatalog(catalog, args.query || "", args.limit || 30);
+        const source: MarketSource = (args.source === "skillkit" ? "skillkit" : "antigravity");
+        const catalog = await fetchCatalog(source, !!args.refresh);
+        // If user asks skillkit + a query, also drill into the first matching collection.
+        let entries: CatalogEntry[] = catalog;
+        if (source === "skillkit" && args.collection) {
+          entries = await fetchCollectionSkills(args.collection);
+        }
+        const hits = searchCatalog(entries, args.query || "", args.limit || 30);
         return {
           ok: true,
           result: {
-            total: catalog.length,
+            source,
+            total: entries.length,
             shown: hits.length,
             query: args.query || "",
-            results: hits.map((h) => ({ id: h.id, name: h.name, url: h.url })),
+            results: hits.map((h) => ({
+              id: h.id, name: h.name, url: h.url, kind: h.kind,
+              collectionRepo: h.collectionRepo,
+            })),
           },
         };
       }
       case "skill_install": {
         if (!args.id) return { ok: false, error: "id required (use skill_search to find one)" };
-        const sk = await fetchSkill(args.id);
+        // Reconstruct a minimal CatalogEntry from id. id formats:
+        //   "antigravity:<slug>"  OR  "skillkit:<owner>/<repo>:<path>"  OR  "skillkit:coll:<owner>/<repo>"
+        const entry = await resolveEntryFromId(args.id);
+        if (!entry) return { ok: false, error: `Unknown skill id: ${args.id}` };
+        if (entry.kind === "collection") {
+          return { ok: false, error: "That id is a collection. Call skill_search with collection='<owner>/<repo>' to list its skills, then install one." };
+        }
+        const sk = await fetchSkill(entry);
         s.installSkill(sk);
         return {
           ok: true,
           result: {
-            installed: sk.id,
-            name: sk.name,
-            description: sk.description,
-            risk: sk.risk,
-            promptBytes: sk.prompt.length,
+            installed: sk.id, name: sk.name, description: sk.description,
+            risk: sk.risk, promptBytes: sk.prompt.length,
           },
         };
       }
@@ -293,6 +307,43 @@ function resolveRepo(args: any, g: NonNullable<ReturnType<typeof useJarvis.getSt
     repo = repo || r;
   }
   return { owner, repo };
+}
+
+// Reconstruct a CatalogEntry from a stable id string so skill_install can be called
+// directly by the model without the agent passing the full entry object.
+async function resolveEntryFromId(id: string): Promise<CatalogEntry | null> {
+  if (id.startsWith("antigravity:")) {
+    const slug = id.slice("antigravity:".length);
+    return {
+      id, source: "antigravity", kind: "skill",
+      name: slug, description: "",
+      url: `https://github.com/sickn33/antigravity-awesome-skills/tree/main/skills/${slug}`,
+      rawUrl: `https://raw.githubusercontent.com/sickn33/antigravity-awesome-skills/main/skills/${slug}/SKILL.md`,
+    };
+  }
+  if (id.startsWith("skillkit:coll:")) {
+    const repo = id.slice("skillkit:coll:".length);
+    return {
+      id, source: "skillkit", kind: "collection", collectionRepo: repo,
+      name: repo, description: "",
+      url: `https://github.com/${repo}`, rawUrl: "",
+    };
+  }
+  if (id.startsWith("skillkit:")) {
+    // Format: skillkit:<owner>/<repo>:<path>
+    const rest = id.slice("skillkit:".length);
+    const colonIdx = rest.indexOf(":");
+    if (colonIdx < 0) return null;
+    const repo = rest.slice(0, colonIdx);
+    const path = rest.slice(colonIdx + 1);
+    return {
+      id, source: "skillkit", kind: "skill", collectionRepo: repo,
+      name: path.split("/").pop() || path, description: "",
+      url: `https://github.com/${repo}/tree/HEAD/${path}`,
+      rawUrl: `https://raw.githubusercontent.com/${repo}/HEAD/${path}/SKILL.md`,
+    };
+  }
+  return null;
 }
 
 export async function ghVerifyToken(token: string): Promise<{ login: string; scopes: string[] } | null> {

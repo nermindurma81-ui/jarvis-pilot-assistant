@@ -1,16 +1,34 @@
-// Real marketplace integration with github.com/sickn33/antigravity-awesome-skills
-// No mocks. Catalog is fetched from GitHub, individual skills are fetched on install.
+// Real marketplace integration. Two sources, no mocks:
+//   1) "antigravity" — sickn33/antigravity-awesome-skills (flat /skills/<id>/SKILL.md)
+//   2) "skillkit"    — rohitg00/skillkit (curated catalog of upstream collection repos)
+// Skills are fetched live from GitHub on install.
 
-const REPO = "sickn33/antigravity-awesome-skills";
-const RAW_BASE = `https://raw.githubusercontent.com/${REPO}/main`;
-const API_BASE = `https://api.github.com/repos/${REPO}/contents`;
+export type MarketSource = "antigravity" | "skillkit";
+
+const SOURCES: Record<MarketSource, { repo: string; raw: string; api: string }> = {
+  antigravity: {
+    repo: "sickn33/antigravity-awesome-skills",
+    raw: "https://raw.githubusercontent.com/sickn33/antigravity-awesome-skills/main",
+    api: "https://api.github.com/repos/sickn33/antigravity-awesome-skills/contents",
+  },
+  skillkit: {
+    repo: "rohitg00/skillkit",
+    raw: "https://raw.githubusercontent.com/rohitg00/skillkit/main",
+    api: "https://api.github.com/repos/rohitg00/skillkit/contents",
+  },
+};
 
 export type CatalogEntry = {
-  id: string;          // directory name == unique id
-  name: string;        // human-readable
-  description: string; // short, from frontmatter or fallback
-  url: string;         // GitHub html URL for the SKILL.md
-  rawUrl: string;      // raw SKILL.md
+  id: string;          // unique within source ("<source>:<...>")
+  name: string;
+  description: string;
+  url: string;         // GitHub html URL
+  rawUrl: string;      // raw SKILL.md (for direct skills) OR "" for collections
+  source: MarketSource;
+  // skillkit-only:
+  kind?: "collection" | "skill";
+  collectionRepo?: string; // e.g. "anthropics/skills"
+  tags?: string[];
 };
 
 export type FetchedSkill = {
@@ -20,64 +38,83 @@ export type FetchedSkill = {
   risk?: string;
   source?: string;
   version?: string;
-  prompt: string;       // body of SKILL.md (system prompt content)
+  prompt: string;
   fetchedAt: number;
   rawUrl: string;
 };
 
-const CATALOG_CACHE_KEY = "jarvis-skill-catalog-v1";
-const CATALOG_TTL_MS = 1000 * 60 * 60 * 6; // 6h
-
+const CATALOG_TTL_MS = 1000 * 60 * 60 * 6;
 type CatalogCache = { ts: number; entries: CatalogEntry[] };
+const cacheKey = (s: MarketSource) => `jarvis-skill-catalog-${s}-v2`;
 
-/** Fetch the directory listing of /skills via the GitHub contents API.
- *  Returns ALL skill folders (handles pagination via per_page=100 + manual paging). */
-export async function fetchCatalog(force = false): Promise<CatalogEntry[]> {
+// ── PUBLIC API ─────────────────────────────────────────────────────────────
+
+/** Top-level catalog for a source. For skillkit this returns curated COLLECTIONS. */
+export async function fetchCatalog(source: MarketSource, force = false): Promise<CatalogEntry[]> {
   if (!force) {
     try {
-      const cached = JSON.parse(localStorage.getItem(CATALOG_CACHE_KEY) || "null") as CatalogCache | null;
-      if (cached && Date.now() - cached.ts < CATALOG_TTL_MS && cached.entries.length) {
-        return cached.entries;
-      }
+      const cached = JSON.parse(localStorage.getItem(cacheKey(source)) || "null") as CatalogCache | null;
+      if (cached && Date.now() - cached.ts < CATALOG_TTL_MS && cached.entries.length) return cached.entries;
     } catch {}
   }
 
-  // /contents only returns first 1000 entries flat. We use the git tree API for completeness.
-  const treeUrl = `https://api.github.com/repos/${REPO}/git/trees/main?recursive=0`;
-  // Simpler: list /skills via contents (returns up to 1000, sufficient).
-  const r = await fetch(`${API_BASE}/skills?ref=main`, {
-    headers: { Accept: "application/vnd.github+json" },
-  });
-  if (!r.ok) throw new Error(`Catalog fetch failed: ${r.status}`);
-  const items = (await r.json()) as Array<{ name: string; type: string; html_url: string }>;
-  const entries: CatalogEntry[] = items
-    .filter((x) => x.type === "dir" && !x.name.startsWith("."))
-    .map((x) => ({
-      id: x.name,
-      name: humanize(x.name),
-      description: "",
-      url: x.html_url,
-      rawUrl: `${RAW_BASE}/skills/${x.name}/SKILL.md`,
-    }));
-
-  localStorage.setItem(CATALOG_CACHE_KEY, JSON.stringify({ ts: Date.now(), entries } satisfies CatalogCache));
+  const entries = source === "antigravity" ? await fetchAntigravity() : await fetchSkillkitCollections();
+  localStorage.setItem(cacheKey(source), JSON.stringify({ ts: Date.now(), entries } satisfies CatalogCache));
   return entries;
 }
 
-/** Fetch full SKILL.md, parse YAML frontmatter, return executable skill payload. */
-export async function fetchSkill(id: string): Promise<FetchedSkill> {
-  const rawUrl = `${RAW_BASE}/skills/${encodeURIComponent(id)}/SKILL.md`;
-  const r = await fetch(rawUrl);
+/** For a skillkit COLLECTION entry, list the actual skills inside its upstream repo. */
+export async function fetchCollectionSkills(collectionRepo: string): Promise<CatalogEntry[]> {
+  const cacheK = `jarvis-skillkit-coll-${collectionRepo.replace("/", "_")}-v1`;
+  try {
+    const cached = JSON.parse(localStorage.getItem(cacheK) || "null") as CatalogCache | null;
+    if (cached && Date.now() - cached.ts < CATALOG_TTL_MS) return cached.entries;
+  } catch {}
+
+  // Try common locations: /skills, /agents, root. First that returns dirs with SKILL.md wins.
+  const candidates = ["skills", "agents", ""];
+  let entries: CatalogEntry[] = [];
+  for (const path of candidates) {
+    const url = `https://api.github.com/repos/${collectionRepo}/contents/${path}`;
+    const r = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
+    if (!r.ok) continue;
+    const items = (await r.json()) as Array<{ name: string; type: string; html_url: string; path: string }>;
+    const dirs = items.filter((x) => x.type === "dir" && !x.name.startsWith("."));
+    if (!dirs.length) continue;
+    entries = dirs.map((d) => ({
+      id: `skillkit:${collectionRepo}:${d.path}`,
+      name: humanize(d.name),
+      description: "",
+      url: d.html_url,
+      rawUrl: `https://raw.githubusercontent.com/${collectionRepo}/HEAD/${d.path}/SKILL.md`,
+      source: "skillkit" as const,
+      kind: "skill" as const,
+      collectionRepo,
+    }));
+    if (entries.length) break;
+  }
+  localStorage.setItem(cacheK, JSON.stringify({ ts: Date.now(), entries } satisfies CatalogCache));
+  return entries;
+}
+
+/** Fetch full SKILL.md, parse frontmatter + body. Works for both sources. */
+export async function fetchSkill(entry: CatalogEntry): Promise<FetchedSkill> {
+  const rawUrl = entry.rawUrl;
+  if (!rawUrl) throw new Error("Cannot install a collection — open it and pick a skill.");
+  // Try main first; HEAD redirects to default branch on raw.githubusercontent.com.
+  let r = await fetch(rawUrl);
+  if (!r.ok && rawUrl.includes("/HEAD/")) r = await fetch(rawUrl.replace("/HEAD/", "/main/"));
+  if (!r.ok && rawUrl.includes("/HEAD/")) r = await fetch(rawUrl.replace("/HEAD/", "/master/"));
   if (!r.ok) throw new Error(`Skill fetch failed: ${r.status}`);
   const text = await r.text();
   const { meta, body } = parseFrontmatter(text);
 
   return {
-    id,
-    name: meta.name || humanize(id),
-    description: stripQuotes(meta.description || "").slice(0, 280),
+    id: entry.id,
+    name: meta.name || entry.name,
+    description: stripQuotes(meta.description || entry.description || "").slice(0, 280),
     risk: stripQuotes(meta.risk || ""),
-    source: stripQuotes(meta.source || ""),
+    source: stripQuotes(meta.source || entry.source),
     version: stripQuotes(meta["metadata.version"] || meta.version || ""),
     prompt: body.trim(),
     fetchedAt: Date.now(),
@@ -85,29 +122,71 @@ export async function fetchSkill(id: string): Promise<FetchedSkill> {
   };
 }
 
-/** Search catalog client-side by name+description substring. */
-export function searchCatalog(entries: CatalogEntry[], q: string, limit = 50): CatalogEntry[] {
+export function searchCatalog(entries: CatalogEntry[], q: string, limit = 100): CatalogEntry[] {
   if (!q.trim()) return entries.slice(0, limit);
   const needle = q.toLowerCase();
   return entries
-    .filter((e) => e.id.toLowerCase().includes(needle) || e.name.toLowerCase().includes(needle))
+    .filter(
+      (e) =>
+        e.id.toLowerCase().includes(needle) ||
+        e.name.toLowerCase().includes(needle) ||
+        e.description.toLowerCase().includes(needle) ||
+        e.tags?.some((t) => t.toLowerCase().includes(needle))
+    )
     .slice(0, limit);
+}
+
+// ── SOURCE FETCHERS ────────────────────────────────────────────────────────
+
+async function fetchAntigravity(): Promise<CatalogEntry[]> {
+  const r = await fetch(`${SOURCES.antigravity.api}/skills?ref=main`, {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!r.ok) throw new Error(`antigravity catalog: ${r.status}`);
+  const items = (await r.json()) as Array<{ name: string; type: string; html_url: string }>;
+  return items
+    .filter((x) => x.type === "dir" && !x.name.startsWith("."))
+    .map((x) => ({
+      id: `antigravity:${x.name}`,
+      name: humanize(x.name),
+      description: "",
+      url: x.html_url,
+      rawUrl: `${SOURCES.antigravity.raw}/skills/${x.name}/SKILL.md`,
+      source: "antigravity" as const,
+      kind: "skill" as const,
+    }));
+}
+
+async function fetchSkillkitCollections(): Promise<CatalogEntry[]> {
+  const r = await fetch(`${SOURCES.skillkit.raw}/marketplace/skills.json`);
+  if (!r.ok) throw new Error(`skillkit catalog: ${r.status}`);
+  const data = (await r.json()) as {
+    skills: Array<{ id: string; name: string; description: string; source: string; tags?: string[]; type: string }>;
+  };
+  return (data.skills || []).map((s) => ({
+    id: `skillkit:coll:${s.source}`,
+    name: s.name,
+    description: s.description || "",
+    url: `https://github.com/${s.source}`,
+    rawUrl: "", // collections aren't directly installable
+    source: "skillkit" as const,
+    kind: "collection" as const,
+    collectionRepo: s.source,
+    tags: s.tags,
+  }));
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────
 function humanize(slug: string): string {
   return slug
     .replace(/^[0-9]+-/, "")
-    .split("-")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .split(/[-_]/)
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ""))
     .join(" ");
 }
-
 function stripQuotes(v: string): string {
   return v.replace(/^["']|["']$/g, "").trim();
 }
-
-/** Minimal YAML frontmatter parser — handles flat keys + 1 level of nesting (metadata.version). */
 function parseFrontmatter(src: string): { meta: Record<string, string>; body: string } {
   const m = src.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
   if (!m) return { meta: {}, body: src };
@@ -125,9 +204,8 @@ function parseFrontmatter(src: string): { meta: Record<string, string>; body: st
       nestKey = key;
       continue;
     }
-    if (indented && nestKey) {
-      meta[`${nestKey}.${key}`] = val;
-    } else {
+    if (indented && nestKey) meta[`${nestKey}.${key}`] = val;
+    else {
       nestKey = "";
       meta[key] = val;
     }
