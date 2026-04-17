@@ -55,8 +55,23 @@ export const TerminalSheet = ({ open, onOpenChange }: Props) => {
             activeSkill: s.activeSkill, audit: s.audit,
             androidBridge: !!(window as any).AndroidBridge,
             uploads: s.uploads.length, docs: s.docs.length, queue: s.msgQueue.length,
+            github: s.github ? { user: s.github.user, defaultRepo: s.github.defaultRepo, hasToken: true } : null,
           }, null, 2));
           break;
+        case "gh": {
+          const sub = rest[0];
+          if (sub === "status") {
+            print("out", s.github ? `signed in as ${s.github.user}, defaultRepo=${s.github.defaultRepo || "(none)"}` : "not signed in (Settings → GitHub)");
+          } else if (sub === "signout") {
+            s.setGithub(null); print("out", "signed out");
+          } else if (sub === "repo" && rest[1]) {
+            if (!s.github) print("err", "sign in first (Settings → GitHub)");
+            else { s.setGithub({ ...s.github, defaultRepo: rest[1] }); print("out", `defaultRepo=${rest[1]}`); }
+          } else {
+            print("out", "usage: gh status | gh repo <owner/repo> | gh signout");
+          }
+          break;
+        }
         case "autopilot":
           if (rest[0] === "on") { s.setAutopilot(true); print("out", "autopilot ON"); }
           else if (rest[0] === "off") { s.setAutopilot(false); print("out", "autopilot OFF"); }
