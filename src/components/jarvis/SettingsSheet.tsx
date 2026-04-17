@@ -112,7 +112,7 @@ export const SettingsSheet = ({ open, onOpenChange }: Props) => {
 
           <TabsContent value="docs" className="p-4 space-y-2">
             <div className="text-[10px] font-mono uppercase text-primary/60">Saved JARVIS docs ({docs.length})</div>
-            {docs.length === 0 && <div className="text-foreground-dim text-xs">Nema dokumenata. Reci agentu: "save this as <name>".</div>}
+            {docs.length === 0 && <div className="text-foreground-dim text-xs">Nema dokumenata. Reci agentu: "save this as &lt;name&gt;".</div>}
             {docs.map((d) => (
               <div key={d.name} className="bg-background-elev2/50 border border-primary/15 rounded p-2">
                 <div className="flex items-center justify-between mb-1">
