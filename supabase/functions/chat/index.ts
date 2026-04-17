@@ -208,11 +208,13 @@ const TOOL_DEFS = [
     type: "function",
     function: {
       name: "skill_search",
-      description: "Search the antigravity-awesome-skills marketplace (1000+ skills). Returns matching skill IDs and names.",
+      description: "Search skill marketplace. Two sources: 'antigravity' (sickn33/antigravity-awesome-skills, 1000+ flat skills) and 'skillkit' (rohitg00/skillkit, 33 curated COLLECTIONS pointing to ~15k upstream skills). For skillkit: first call without 'collection' to see collections, then call again with collection='<owner>/<repo>' (from the result's collectionRepo) to drill into that collection's skills.",
       parameters: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Substring to match against skill id/name. Empty = list all." },
+          source: { type: "string", enum: ["antigravity", "skillkit"], description: "Marketplace source. Default antigravity." },
+          query: { type: "string", description: "Substring to match against id/name/description/tags. Empty = list all." },
+          collection: { type: "string", description: "skillkit only: '<owner>/<repo>' to drill into a collection (e.g. 'supabase/agent-skills')." },
           limit: { type: "number", description: "Max results (default 30)." },
           refresh: { type: "boolean", description: "Force re-fetch the catalog from GitHub." },
         },
