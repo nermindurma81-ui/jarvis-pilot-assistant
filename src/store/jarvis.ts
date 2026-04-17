@@ -59,6 +59,7 @@ type Store = {
   deleteDoc: (name: string) => void;
   addUpload: (u: UploadedFile) => void;
   removeUpload: (name: string) => void;
+  setGithub: (g: GithubAuth) => void;
 };
 
 export const useJarvis = create<Store>()(
@@ -114,6 +115,7 @@ export const useJarvis = create<Store>()(
       deleteDoc: (name) => set((s) => ({ docs: s.docs.filter((d) => d.name !== name) })),
       addUpload: (u) => set((s) => ({ uploads: [...s.uploads.filter((x) => x.name !== u.name), u] })),
       removeUpload: (name) => set((s) => ({ uploads: s.uploads.filter((u) => u.name !== name) })),
+      setGithub: (g) => set({ github: g }),
     }),
     {
       name: "jarvis-v4-store",
@@ -126,6 +128,7 @@ export const useJarvis = create<Store>()(
         activeSkill: s.activeSkill,
         docs: s.docs,
         uploads: s.uploads,
+        github: s.github,
       }),
     }
   )
