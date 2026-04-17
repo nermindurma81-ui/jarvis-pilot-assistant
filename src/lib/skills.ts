@@ -187,23 +187,23 @@ Then call eval_response. Criteria: profile complete, exactly 5 insights, ≥1 ch
 ];
 
 // Resolve a skill by id from BOTH built-ins AND installed marketplace skills.
-// Imported lazily here to avoid a circular dep with the store.
+// We read the persisted store from localStorage to avoid a circular import.
 export const skillById = (id: string | null): Skill | null => {
   if (!id) return null;
   const builtin = SKILLS.find((s) => s.id === id);
   if (builtin) return builtin;
-  // Marketplace lookup — defer require so this module stays sync-importable.
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { useJarvis } = require("@/store/jarvis");
-    const inst = useJarvis.getState().installedSkills.find((s: any) => s.id === id);
-    if (inst) {
+    const raw = localStorage.getItem("jarvis-v4-store");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const installed = parsed?.state?.installedSkills?.find((s: any) => s.id === id);
+    if (installed) {
       return {
-        id: inst.id,
-        name: inst.name,
+        id: installed.id,
+        name: installed.name,
         icon: "🧩",
-        description: inst.description || "Marketplace skill",
-        prompt: inst.prompt,
+        description: installed.description || "Marketplace skill",
+        prompt: installed.prompt,
       };
     }
   } catch {}
