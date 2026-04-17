@@ -85,6 +85,7 @@ export const useJarvis = create<Store>()(
       activeSkill: null,
       docs: [],
       uploads: [],
+      github: null,
 
       addMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
       updateMessage: (id, patch) =>
