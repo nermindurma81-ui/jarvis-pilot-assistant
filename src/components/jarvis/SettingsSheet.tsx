@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PROVIDERS } from "@/lib/cli-providers";
-import { Copy, Trash2, Plus, FileDown, FileText } from "lucide-react";
+import { ghVerifyToken } from "@/lib/tools";
+import { Copy, Trash2, Plus, FileDown, FileText, Github, LogOut, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 type Props = { open: boolean; onOpenChange: (b: boolean) => void };
