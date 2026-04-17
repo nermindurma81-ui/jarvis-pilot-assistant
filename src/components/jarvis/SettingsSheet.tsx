@@ -80,6 +80,10 @@ export const SettingsSheet = ({ open, onOpenChange }: Props) => {
             )}
           </TabsContent>
 
+          <TabsContent value="github" className="p-4 space-y-3">
+            <GithubPanel />
+          </TabsContent>
+
           <TabsContent value="audit" className="p-4 space-y-3">
             <Row label="Repo write" hint="Dozvoli gh_create_issue i sl.">
               <Switch checked={audit.repoWrite} onCheckedChange={(b) => setAudit({ repoWrite: b })} />
