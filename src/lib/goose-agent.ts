@@ -6,7 +6,11 @@ import type { FetchedSkill } from "./skill-marketplace";
 const REPO = "aaif-goose/goose";
 const RAW = `https://raw.githubusercontent.com/${REPO}/main`;
 
-// Curated, real skill paths from .agents/skills/
+// Goose ships identical SKILL.md into 4 target dirs:
+//   .agents/skills, .claude/skills, .codex/skills, .cursor/skills
+// `.claude`, `.codex`, `.cursor` are GitHub symlinks → `.agents`, so content is identical.
+// We fetch from `.agents` (canonical) and tag each skill with its 4 install targets.
+export const GOOSE_SKILL_TARGETS = [".agents", ".claude", ".codex", ".cursor"] as const;
 const GOOSE_SKILL_PATHS = [
   "code-review",
   "create-app-e2e-test",
@@ -61,11 +65,13 @@ async function fetchOneSkill(slug: string): Promise<FetchedSkill> {
     }
     flush();
   }
+  const baseDesc = (meta.description || "").replace(/^["']|["']$/g, "").slice(0, 220);
+  const targets = GOOSE_SKILL_TARGETS.join(", ");
   return {
     id: `goose:${slug}`,
     name: meta.name ? meta.name.replace(/^["']|["']$/g, "") : slug,
-    description: (meta.description || "").replace(/^["']|["']$/g, "").slice(0, 280),
-    source: "aaif-goose/goose",
+    description: `${baseDesc} [installs to: ${targets}]`.slice(0, 280),
+    source: `aaif-goose/goose (${targets})`,
     prompt: body.trim(),
     fetchedAt: Date.now(),
     rawUrl: url,
