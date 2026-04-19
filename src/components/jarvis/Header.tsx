@@ -1,5 +1,6 @@
-import { useJarvis, MODELS } from "@/store/jarvis";
-import { Settings2, Rocket, Terminal as TerminalIcon, Cpu, Store, ChevronDown } from "lucide-react";
+import { useJarvis, resolveActiveModel } from "@/store/jarvis";
+import { Settings2, Rocket, Terminal as TerminalIcon, Cpu, Store, ChevronDown, KeyRound } from "lucide-react";
+import { PROVIDERS } from "@/lib/providers";
 import { useState } from "react";
 
 type Props = {
@@ -9,9 +10,13 @@ type Props = {
 };
 
 export const Header = ({ onOpenSettings, onOpenTerminal, onOpenMarketplace }: Props) => {
-  const { model, setModel, autopilot, setAutopilot, github, installedSkills } = useJarvis();
-  const [modelOpen, setModelOpen] = useState(false);
-  const currentModel = MODELS.find((m) => m.id === model)?.label || model;
+  const { activeModel, setActiveModel, autopilot, setAutopilot, github, installedSkills, providerKeys, customProviders } = useJarvis();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const active = resolveActiveModel();
+  const hasKey = !!active?.apiKey;
+  const shortLabel = active
+    ? `${active.providerId.toString().replace("custom:", "")}/${active.modelId.split("/").pop()}`
+    : "no model";
 
   return (
     <header className="flex items-center gap-1.5 px-2 sm:px-4 py-2 border-b border-primary/20 bg-background-elev/80 backdrop-blur-xl flex-shrink-0">
@@ -24,39 +29,87 @@ export const Header = ({ onOpenSettings, onOpenTerminal, onOpenMarketplace }: Pr
 
       <div className="flex-1" />
 
-      {/* Desktop: full select. Mobile: compact button that opens dropdown. */}
-      <select
-        value={model}
-        onChange={(e) => setModel(e.target.value)}
-        className="hidden sm:block bg-background-elev2 border border-primary/30 rounded text-[11px] font-mono px-2 py-1 text-foreground max-w-[160px] focus:outline-none focus:border-primary focus:shadow-glow"
-      >
-        {MODELS.map((m) => (
-          <option key={m.id} value={m.id}>{m.label}</option>
-        ))}
-      </select>
-
-      <div className="sm:hidden relative">
+      {/* Active model chip — opens picker */}
+      <div className="relative">
         <button
-          onClick={() => setModelOpen((o) => !o)}
-          title={currentModel}
-          className="inline-flex items-center gap-1 bg-background-elev2 border border-primary/30 rounded text-[10px] font-mono px-1.5 py-1 text-primary max-w-[80px]"
+          onClick={() => setPickerOpen((o) => !o)}
+          title={active?.label || "Select provider/model"}
+          className={`inline-flex items-center gap-1 bg-background-elev2 border rounded text-[10px] sm:text-[11px] font-mono px-1.5 sm:px-2 py-1 max-w-[110px] sm:max-w-[180px] ${
+            hasKey ? "border-primary/30 text-primary" : "border-warning/40 text-warning"
+          }`}
         >
-          <span className="truncate">{currentModel.replace(/Gemini |GPT-/, "").split(" ")[0]}</span>
+          {!hasKey && <KeyRound className="w-3 h-3 flex-shrink-0" />}
+          <span className="truncate">{shortLabel}</span>
           <ChevronDown className="w-3 h-3 flex-shrink-0" />
         </button>
-        {modelOpen && (
+        {pickerOpen && (
           <>
-            <div className="fixed inset-0 z-40" onClick={() => setModelOpen(false)} />
-            <div className="absolute right-0 top-full mt-1 z-50 bg-background-elev2 border border-primary/40 rounded shadow-glow min-w-[180px] py-1">
-              {MODELS.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => { setModel(m.id); setModelOpen(false); }}
-                  className={`w-full text-left text-[11px] font-mono px-3 py-1.5 hover:bg-primary/10 ${m.id === model ? "text-primary bg-primary/5" : "text-foreground-dim"}`}
-                >
-                  {m.label}
-                </button>
+            <div className="fixed inset-0 z-40" onClick={() => setPickerOpen(false)} />
+            <div className="absolute right-0 top-full mt-1 z-50 bg-background-elev2 border border-primary/40 rounded shadow-glow w-[260px] max-h-[60vh] overflow-y-auto py-1">
+              {PROVIDERS.map((p) => {
+                const configured = !!providerKeys[p.id];
+                return (
+                  <div key={p.id} className="border-b border-primary/10 last:border-b-0">
+                    <div className="flex items-center justify-between px-2 py-1 bg-background-elev/40">
+                      <span className={`text-[10px] font-mono uppercase ${p.color}`}>{p.name}</span>
+                      <span className={`text-[9px] font-mono ${configured ? "text-success" : "text-foreground-dim"}`}>
+                        {configured ? "● configured" : "○ no key"}
+                      </span>
+                    </div>
+                    {p.models.map((m) => {
+                      const isActive = activeModel.providerId === p.id && activeModel.modelId === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => {
+                            setActiveModel({ providerId: p.id, modelId: m.id });
+                            setPickerOpen(false);
+                          }}
+                          className={`w-full text-left text-[11px] font-mono px-3 py-1 hover:bg-primary/10 flex items-center justify-between ${
+                            isActive ? "text-primary bg-primary/5" : "text-foreground-dim"
+                          }`}
+                        >
+                          <span className="truncate">{m.label}</span>
+                          <span className="text-[9px] text-foreground-dim ml-1 flex-shrink-0">
+                            {m.free ? "FREE" : m.ctx}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+              {customProviders.map((cp) => (
+                <div key={cp.id} className="border-b border-primary/10 last:border-b-0">
+                  <div className="flex items-center justify-between px-2 py-1 bg-background-elev/40">
+                    <span className="text-[10px] font-mono uppercase text-violet-400">{cp.name}</span>
+                    <span className="text-[9px] font-mono text-success">● custom</span>
+                  </div>
+                  {cp.models.map((m) => {
+                    const isActive = activeModel.providerId === cp.id && activeModel.modelId === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        onClick={() => {
+                          setActiveModel({ providerId: cp.id, modelId: m.id });
+                          setPickerOpen(false);
+                        }}
+                        className={`w-full text-left text-[11px] font-mono px-3 py-1 hover:bg-primary/10 ${
+                          isActive ? "text-primary bg-primary/5" : "text-foreground-dim"
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
               ))}
+              <button
+                onClick={() => { setPickerOpen(false); onOpenSettings(); }}
+                className="w-full text-left text-[10px] font-mono px-3 py-1.5 text-primary hover:bg-primary/10 border-t border-primary/20"
+              >
+                + Manage providers & keys
+              </button>
             </div>
           </>
         )}

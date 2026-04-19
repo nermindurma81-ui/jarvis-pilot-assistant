@@ -1,5 +1,5 @@
 // Agent loop — handles streaming, tool dispatch, eval_response autopilot continuation.
-import { useJarvis } from "@/store/jarvis";
+import { useJarvis, resolveActiveModel } from "@/store/jarvis";
 import { skillById } from "./skills";
 import { executeTool } from "./tools";
 
@@ -27,6 +27,9 @@ async function streamOnce(messages: any[], cb: StreamCallbacks): Promise<{
 }> {
   const s = useJarvis.getState();
   const skill = skillById(s.activeSkill);
+  const active = resolveActiveModel();
+  if (!active) throw new Error("Nijedan provider/model nije izabran. Otvori Settings → Models.");
+  if (!active.apiKey) throw new Error(`Nema API ključa za ${active.providerId}. Otvori Settings → Providers.`);
 
   const resp = await fetch(CHAT_URL, {
     method: "POST",
@@ -36,7 +39,12 @@ async function streamOnce(messages: any[], cb: StreamCallbacks): Promise<{
     },
     body: JSON.stringify({
       messages,
-      model: s.model,
+      provider: active.providerId,
+      apiStyle: active.apiStyle,
+      baseUrl: active.baseUrl,
+      model: active.modelId,
+      apiKey: active.apiKey,
+      systemPrompt: s.systemPrompt,
       autopilot: s.autopilot,
       activeSkill: skill?.name || null,
       skillPrompt: skill?.prompt || "",

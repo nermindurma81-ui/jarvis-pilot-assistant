@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { FetchedSkill } from "@/lib/skill-marketplace";
+import type { ProviderId, CustomProvider } from "@/lib/providers";
+import { DEFAULT_SYSTEM_PROMPT, SYSTEM_PROMPT_PRESETS, PROVIDERS } from "@/lib/providers";
 
 export type ChatMessage = {
   id: string;
@@ -27,13 +29,30 @@ export type UploadedFile = { name: string; url: string; size: number; type: stri
 
 export type GithubAuth = { token: string; user: string; defaultRepo?: string } | null;
 
+// Per-provider stored API key (browser-only)
+export type ProviderKeys = Partial<Record<ProviderId, string>>;
+
+// Currently selected model = which provider + which model id
+export type ActiveModel = {
+  providerId: ProviderId | string; // string allows custom:slug
+  modelId: string;
+};
+
+export type SystemPromptPreset = { id: string; name: string; prompt: string };
+
 type Store = {
   // Chat
   messages: ChatMessage[];
   msgQueue: string[];
   isAgentBusy: boolean;
+  // Providers / models
+  providerKeys: ProviderKeys;
+  customProviders: CustomProvider[];
+  activeModel: ActiveModel;
+  // System prompt
+  systemPrompt: string;
+  presets: SystemPromptPreset[];
   // Settings
-  model: string;
   autopilot: boolean;
   evalRequired: boolean;
   audit: AuditFlags;
@@ -50,7 +69,15 @@ type Store = {
   enqueue: (text: string) => void;
   drainQueue: () => string | null;
   setAgentBusy: (b: boolean) => void;
-  setModel: (m: string) => void;
+  setProviderKey: (id: ProviderId, key: string) => void;
+  removeProviderKey: (id: ProviderId) => void;
+  addCustomProvider: (p: CustomProvider) => void;
+  removeCustomProvider: (id: string) => void;
+  setActiveModel: (a: ActiveModel) => void;
+  setSystemPrompt: (s: string) => void;
+  resetSystemPrompt: () => void;
+  savePreset: (p: SystemPromptPreset) => void;
+  deletePreset: (id: string) => void;
   setAutopilot: (b: boolean) => void;
   setEvalRequired: (b: boolean) => void;
   setActiveSkill: (id: string | null) => void;
@@ -66,13 +93,22 @@ type Store = {
   uninstallSkill: (id: string) => void;
 };
 
+const DEFAULT_ACTIVE: ActiveModel = {
+  providerId: "openai",
+  modelId: "gpt-4o-mini",
+};
+
 export const useJarvis = create<Store>()(
   persist(
     (set, get) => ({
       messages: [],
       msgQueue: [],
       isAgentBusy: false,
-      model: "google/gemini-3-flash-preview",
+      providerKeys: {},
+      customProviders: [],
+      activeModel: DEFAULT_ACTIVE,
+      systemPrompt: DEFAULT_SYSTEM_PROMPT,
+      presets: SYSTEM_PROMPT_PRESETS,
       autopilot: false,
       evalRequired: true,
       audit: {
@@ -80,10 +116,12 @@ export const useJarvis = create<Store>()(
         workflowDispatch: false,
         allowlist: [
           "api.github.com",
-          "api.vercel.com",
-          "api.railway.app",
+          "api.openai.com",
+          "api.anthropic.com",
           "generativelanguage.googleapis.com",
-          "ai.gateway.lovable.dev",
+          "api.mistral.ai",
+          "api.deepseek.com",
+          "openrouter.ai",
         ],
       },
       activeSkill: null,
@@ -105,7 +143,31 @@ export const useJarvis = create<Store>()(
         return head;
       },
       setAgentBusy: (b) => set({ isAgentBusy: b }),
-      setModel: (m) => set({ model: m }),
+      setProviderKey: (id, key) =>
+        set((s) => ({ providerKeys: { ...s.providerKeys, [id]: key } })),
+      removeProviderKey: (id) =>
+        set((s) => {
+          const next = { ...s.providerKeys };
+          delete next[id];
+          return { providerKeys: next };
+        }),
+      addCustomProvider: (p) =>
+        set((s) => ({
+          customProviders: [...s.customProviders.filter((x) => x.id !== p.id), p],
+        })),
+      removeCustomProvider: (id) =>
+        set((s) => ({
+          customProviders: s.customProviders.filter((x) => x.id !== id),
+          activeModel:
+            s.activeModel.providerId === id ? DEFAULT_ACTIVE : s.activeModel,
+        })),
+      setActiveModel: (a) => set({ activeModel: a }),
+      setSystemPrompt: (sp) => set({ systemPrompt: sp }),
+      resetSystemPrompt: () => set({ systemPrompt: DEFAULT_SYSTEM_PROMPT }),
+      savePreset: (p) =>
+        set((s) => ({ presets: [...s.presets.filter((x) => x.id !== p.id), p] })),
+      deletePreset: (id) =>
+        set((s) => ({ presets: s.presets.filter((p) => p.id !== id) })),
       setAutopilot: (b) => set({ autopilot: b }),
       setEvalRequired: (b) => set({ evalRequired: b }),
       setActiveSkill: (id) => set({ activeSkill: id }),
@@ -132,9 +194,25 @@ export const useJarvis = create<Store>()(
     }),
     {
       name: "jarvis-v4-store",
+      version: 2,
+      migrate: (persisted: any) => {
+        // v1 -> v2: drop legacy `model`, seed activeModel
+        if (persisted && !persisted.activeModel) {
+          persisted.activeModel = DEFAULT_ACTIVE;
+        }
+        if (persisted && !persisted.providerKeys) persisted.providerKeys = {};
+        if (persisted && !persisted.customProviders) persisted.customProviders = [];
+        if (persisted && !persisted.systemPrompt) persisted.systemPrompt = DEFAULT_SYSTEM_PROMPT;
+        if (persisted && !persisted.presets) persisted.presets = SYSTEM_PROMPT_PRESETS;
+        return persisted;
+      },
       partialize: (s) => ({
         messages: s.messages.slice(-200),
-        model: s.model,
+        providerKeys: s.providerKeys,
+        customProviders: s.customProviders,
+        activeModel: s.activeModel,
+        systemPrompt: s.systemPrompt,
+        presets: s.presets,
         autopilot: s.autopilot,
         evalRequired: s.evalRequired,
         audit: s.audit,
@@ -148,14 +226,32 @@ export const useJarvis = create<Store>()(
   )
 );
 
-export const MODELS = [
-  { id: "google/gemini-3-flash-preview", label: "Gemini 3 Flash (default)" },
-  { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
-  { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-  { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-  { id: "google/gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
-  { id: "openai/gpt-5", label: "GPT-5" },
-  { id: "openai/gpt-5-mini", label: "GPT-5 Mini" },
-  { id: "openai/gpt-5-nano", label: "GPT-5 Nano" },
-  { id: "openai/gpt-5.2", label: "GPT-5.2" },
-];
+// Helper: resolve currently active model definition (built-in or custom)
+export const resolveActiveModel = () => {
+  const s = useJarvis.getState();
+  const { providerId, modelId } = s.activeModel;
+  if (typeof providerId === "string" && providerId.startsWith("custom:")) {
+    const custom = s.customProviders.find((c) => c.id === providerId);
+    if (!custom) return null;
+    return {
+      providerId,
+      modelId,
+      apiKey: custom.apiKey,
+      baseUrl: custom.baseUrl,
+      apiStyle: "openai" as const,
+      label: `${custom.name} · ${modelId}`,
+    };
+  }
+  const def = PROVIDERS.find((p) => p.id === providerId);
+  if (!def) return null;
+  const apiKey = s.providerKeys[def.id];
+  const m = def.models.find((x) => x.id === modelId);
+  return {
+    providerId: def.id,
+    modelId,
+    apiKey: apiKey || "",
+    baseUrl: def.baseUrl,
+    apiStyle: def.apiStyle,
+    label: m ? `${def.name} · ${m.label}` : `${def.name} · ${modelId}`,
+  };
+};
