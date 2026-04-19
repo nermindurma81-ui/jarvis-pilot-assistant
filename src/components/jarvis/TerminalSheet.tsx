@@ -82,7 +82,7 @@ export const TerminalSheet = ({ open, onOpenChange }: Props) => {
           setHistory([]); break;
         case "status":
           print("out", JSON.stringify({
-            model: s.model, autopilot: s.autopilot, evalRequired: s.evalRequired,
+            model: `${s.activeModel.providerId}/${s.activeModel.modelId}`, autopilot: s.autopilot, evalRequired: s.evalRequired,
             activeSkill: s.activeSkill, audit: s.audit,
             androidBridge: !!(window as any).AndroidBridge,
             uploads: s.uploads.length, docs: s.docs.length, queue: s.msgQueue.length,
@@ -154,8 +154,13 @@ export const TerminalSheet = ({ open, onOpenChange }: Props) => {
           else print("err", "usage: reset chat");
           break;
         case "model":
-          if (!arg) print("err", "usage: model <id>");
-          else { s.setModel(arg); print("out", `model=${arg}`); }
+          if (!arg) print("err", "usage: model <providerId>/<modelId>  (e.g. openai/gpt-4o-mini)");
+          else {
+            const [pid, ...mrest] = arg.split("/");
+            const mid = mrest.join("/");
+            if (!pid || !mid) print("err", "format: <providerId>/<modelId>");
+            else { s.setActiveModel({ providerId: pid, modelId: mid }); print("out", `active=${pid}/${mid}`); }
+          }
           break;
         default:
           print("err", `unknown: ${head}  (try \`help\`)`);
