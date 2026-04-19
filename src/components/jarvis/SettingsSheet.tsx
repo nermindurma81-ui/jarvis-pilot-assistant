@@ -484,7 +484,7 @@ const GithubPanel = () => {
     setVerifying(false);
     if (!r) { toast.error("Token invalid"); return; }
     setGithub({ token, user: r.login, defaultRepo: repoInput.trim() || undefined });
-    setTokenInput();
+    setTokenInput("");
     toast.success(`Signed in as ${r.login}`);
   };
   const saveRepo = () => {
