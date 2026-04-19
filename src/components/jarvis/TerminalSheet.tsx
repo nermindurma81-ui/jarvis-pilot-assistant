@@ -2,6 +2,7 @@ import { useState, KeyboardEvent } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useJarvis } from "@/store/jarvis";
 import { SKILLS } from "@/lib/skills";
+import { GOOSE_AGENT, fetchGoosePrompt, fetchAllGooseSkills } from "@/lib/goose-agent";
 import { toast } from "sonner";
 
 type Line = { kind: "in" | "out" | "err"; text: string };
@@ -48,8 +49,35 @@ export const TerminalSheet = ({ open, onOpenChange }: Props) => {
   gh status                     github auth status
   gh repo <owner/repo>          set default repo
   gh signout                    clear github token
+  goose install                 fetch + install Goose agent (aaif-goose/goose)
+  goose activate                activate Goose persona
+  goose skills                  list installed Goose skills
 `);
           break;
+        case "goose": {
+          const sub = rest[0] || "install";
+          if (sub === "install") {
+            print("out", "fetching aaif-goose/goose system prompt + skills…");
+            (async () => {
+              try {
+                const [prompt, skills] = await Promise.all([fetchGoosePrompt(), fetchAllGooseSkills()]);
+                s.installSkill({ id: GOOSE_AGENT.id, name: GOOSE_AGENT.name, description: GOOSE_AGENT.description, source: "aaif-goose/goose", prompt, fetchedAt: Date.now(), rawUrl: GOOSE_AGENT.systemPromptUrl });
+                skills.forEach(s.installSkill);
+                s.setActiveSkill(GOOSE_AGENT.id);
+                print("out", `✓ Goose installed + activated. Skills: ${skills.map((k) => k.name).join(", ")}`);
+                toast.success(`Goose ready (${skills.length} skills)`);
+              } catch (e: any) { print("err", `goose install failed: ${e.message}`); }
+            })();
+          } else if (sub === "activate") {
+            const has = s.installedSkills.some((x) => x.id === GOOSE_AGENT.id);
+            if (!has) print("err", "not installed — run: goose install");
+            else { s.setActiveSkill(GOOSE_AGENT.id); print("out", "🪿 Goose ACTIVE"); }
+          } else if (sub === "skills") {
+            const gs = s.installedSkills.filter((x) => x.id.startsWith("goose"));
+            print("out", gs.length ? gs.map((x) => `  🪿 ${x.id.padEnd(28)} ${x.name}`).join("\n") : "(none — run: goose install)");
+          } else print("err", "usage: goose install|activate|skills");
+          break;
+        }
         case "clear":
           setHistory([]); break;
         case "status":
