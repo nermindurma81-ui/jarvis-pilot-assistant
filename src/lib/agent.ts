@@ -108,7 +108,14 @@ async function streamOnce(messages: any[], cb: StreamCallbacks): Promise<{
     }
   }
 
-  const toolCalls = Array.from(toolCallsMap.values());
+  // Ensure every tool call has a stable, non-empty id (some providers — Mistral, certain OpenRouter
+  // models — drop or change ids mid-stream; we keep whatever first non-empty id we saw, else synthesize one).
+  const toolCalls = Array.from(toolCallsMap.values()).map((t) => ({
+    ...t,
+    id: t.id && t.id.length > 0 ? t.id : `call_${uid()}`,
+    name: t.name || "unknown",
+    args: t.args || "{}",
+  }));
 
   // Surface eval_response info
   for (const tc of toolCalls) {
