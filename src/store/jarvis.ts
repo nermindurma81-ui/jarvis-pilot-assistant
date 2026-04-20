@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type { FetchedSkill } from "@/lib/skill-marketplace";
 import type { ProviderId, CustomProvider } from "@/lib/providers";
 import { DEFAULT_SYSTEM_PROMPT, SYSTEM_PROMPT_PRESETS, PROVIDERS } from "@/lib/providers";
+import { saveSkill, saveSkillsBulk, deleteSkill, loadAllSkills } from "@/lib/skills-store";
 
 // Quota-safe localStorage: on QuotaExceeded, progressively trim and retry so the app never breaks.
 const safeStorage = {
