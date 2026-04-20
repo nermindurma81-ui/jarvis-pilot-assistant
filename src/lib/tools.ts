@@ -1,6 +1,6 @@
 // Client-side tool dispatcher. Runs tool_calls returned by the model.
 import { useJarvis } from "@/store/jarvis";
-import { fetchCatalog, fetchCollectionSkills, fetchSkill, searchCatalog, type MarketSource, type CatalogEntry } from "@/lib/skill-marketplace";
+import { fetchCatalog, fetchCollectionSkills, fetchSkill, searchCatalog, SOURCE_PRESETS, presetFromCustomRepo, type CatalogEntry } from "@/lib/skill-marketplace";
 
 export type ToolResult = { ok: boolean; result?: any; error?: string };
 
@@ -201,20 +201,22 @@ export async function executeTool(name: string, argsJson: string): Promise<ToolR
         return { ok: false, error: `GitHub ${r.status}: ${data.message || "dispatch failed"}` };
       }
 
-      // ─── Skill marketplace (multi-source: antigravity + skillkit) ───
+      // ─── Skill marketplace (multi-source) ───
       case "skill_search": {
-        const source: MarketSource = (args.source === "skillkit" ? "skillkit" : "antigravity");
-        const catalog = await fetchCatalog(source, !!args.refresh);
-        // If user asks skillkit + a query, also drill into the first matching collection.
+        const sourceId = String(args.source || "antigravity");
+        const preset =
+          SOURCE_PRESETS.find((p) => p.id === sourceId) ||
+          (sourceId.startsWith("custom:") || sourceId.includes("/") ? presetFromCustomRepo(sourceId.replace(/^custom:/, "")) : SOURCE_PRESETS[0]);
+        const catalog = await fetchCatalog(preset, !!args.refresh);
         let entries: CatalogEntry[] = catalog;
-        if (source === "skillkit" && args.collection) {
+        if (preset.id === "skillkit" && args.collection) {
           entries = await fetchCollectionSkills(args.collection);
         }
         const hits = searchCatalog(entries, args.query || "", args.limit || 30);
         return {
           ok: true,
           result: {
-            source,
+            source: preset.id,
             total: entries.length,
             shown: hits.length,
             query: args.query || "",
@@ -309,41 +311,40 @@ function resolveRepo(args: any, g: NonNullable<ReturnType<typeof useJarvis.getSt
   return { owner, repo };
 }
 
-// Reconstruct a CatalogEntry from a stable id string so skill_install can be called
-// directly by the model without the agent passing the full entry object.
+// Resolve a CatalogEntry from a stable id by re-walking its preset's catalog.
 async function resolveEntryFromId(id: string): Promise<CatalogEntry | null> {
-  if (id.startsWith("antigravity:")) {
-    const slug = id.slice("antigravity:".length);
-    return {
-      id, source: "antigravity", kind: "skill",
-      name: slug, description: "",
-      url: `https://github.com/sickn33/antigravity-awesome-skills/tree/main/skills/${slug}`,
-      rawUrl: `https://raw.githubusercontent.com/sickn33/antigravity-awesome-skills/main/skills/${slug}/SKILL.md`,
-    };
-  }
+  // skillkit collection-derived skill
   if (id.startsWith("skillkit:coll:")) {
     const repo = id.slice("skillkit:coll:".length);
     return {
-      id, source: "skillkit", kind: "collection", collectionRepo: repo,
+      id, sourceId: "skillkit", kind: "collection", collectionRepo: repo,
       name: repo, description: "",
       url: `https://github.com/${repo}`, rawUrl: "",
     };
   }
   if (id.startsWith("skillkit:")) {
-    // Format: skillkit:<owner>/<repo>:<path>
     const rest = id.slice("skillkit:".length);
     const colonIdx = rest.indexOf(":");
     if (colonIdx < 0) return null;
     const repo = rest.slice(0, colonIdx);
     const path = rest.slice(colonIdx + 1);
     return {
-      id, source: "skillkit", kind: "skill", collectionRepo: repo,
+      id, sourceId: "skillkit", kind: "skill", collectionRepo: repo,
       name: path.split("/").pop() || path, description: "",
       url: `https://github.com/${repo}/tree/HEAD/${path}`,
       rawUrl: `https://raw.githubusercontent.com/${repo}/HEAD/${path}/SKILL.md`,
     };
   }
-  return null;
+  // Otherwise: id is "<presetId>:<path>". Look up the preset and refetch its catalog.
+  const colon = id.indexOf(":");
+  if (colon < 0) return null;
+  const presetId = id.slice(0, colon);
+  const preset =
+    SOURCE_PRESETS.find((p) => p.id === presetId) ||
+    (presetId.startsWith("custom") ? null : null);
+  if (!preset) return null;
+  const cat = await fetchCatalog(preset);
+  return cat.find((e) => e.id === id) || null;
 }
 
 export async function ghVerifyToken(token: string): Promise<{ login: string; scopes: string[] } | null> {
