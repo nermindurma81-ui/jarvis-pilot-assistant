@@ -90,6 +90,9 @@ type Store = {
   audit: AuditFlags;
   activeSkill: string | null;
   installedSkills: FetchedSkill[];
+  skillsHydrated: boolean;
+  // Custom marketplace sources (user-added GitHub repos)
+  customSources: { id: string; label: string; repo: string; ref?: string; rootPath?: string }[];
   // Data
   docs: JarvisDoc[];
   uploads: UploadedFile[];
@@ -122,7 +125,11 @@ type Store = {
   removeUpload: (name: string) => void;
   setGithub: (g: GithubAuth) => void;
   installSkill: (s: FetchedSkill) => void;
+  installSkillsBulk: (s: FetchedSkill[]) => Promise<void>;
   uninstallSkill: (id: string) => void;
+  hydrateSkills: () => Promise<void>;
+  addCustomSource: (src: { id: string; label: string; repo: string; ref?: string; rootPath?: string }) => void;
+  removeCustomSource: (id: string) => void;
 };
 
 const DEFAULT_ACTIVE: ActiveModel = {
