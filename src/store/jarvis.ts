@@ -3,8 +3,10 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type { FetchedSkill } from "@/lib/skill-marketplace";
 import type { ProviderId, CustomProvider } from "@/lib/providers";
 import { DEFAULT_SYSTEM_PROMPT, SYSTEM_PROMPT_PRESETS, PROVIDERS } from "@/lib/providers";
+import { saveSkill, saveSkillsBulk, deleteSkill, loadAllSkills } from "@/lib/skills-store";
 
-// Quota-safe localStorage: on QuotaExceeded, progressively trim and retry so the app never breaks.
+// Quota-safe localStorage. Heavy data (installed skills) lives in IndexedDB,
+// so this only handles light state (settings, chat msgs). Trims on overflow.
 const safeStorage = {
   getItem: (name: string) => {
     try { return localStorage.getItem(name); } catch { return null; }
@@ -88,6 +90,9 @@ type Store = {
   audit: AuditFlags;
   activeSkill: string | null;
   installedSkills: FetchedSkill[];
+  skillsHydrated: boolean;
+  // Custom marketplace sources (user-added GitHub repos)
+  customSources: { id: string; label: string; repo: string; ref?: string; rootPath?: string }[];
   // Data
   docs: JarvisDoc[];
   uploads: UploadedFile[];
@@ -120,7 +125,11 @@ type Store = {
   removeUpload: (name: string) => void;
   setGithub: (g: GithubAuth) => void;
   installSkill: (s: FetchedSkill) => void;
+  installSkillsBulk: (s: FetchedSkill[]) => Promise<void>;
   uninstallSkill: (id: string) => void;
+  hydrateSkills: () => Promise<void>;
+  addCustomSource: (src: { id: string; label: string; repo: string; ref?: string; rootPath?: string }) => void;
+  removeCustomSource: (id: string) => void;
 };
 
 const DEFAULT_ACTIVE: ActiveModel = {
@@ -156,6 +165,8 @@ export const useJarvis = create<Store>()(
       },
       activeSkill: null,
       installedSkills: [],
+      skillsHydrated: false,
+      customSources: [],
       docs: [],
       uploads: [],
       github: null,
@@ -214,30 +225,62 @@ export const useJarvis = create<Store>()(
       addUpload: (u) => set((s) => ({ uploads: [...s.uploads.filter((x) => x.name !== u.name), u] })),
       removeUpload: (name) => set((s) => ({ uploads: s.uploads.filter((u) => u.name !== name) })),
       setGithub: (g) => set({ github: g }),
-      installSkill: (sk) =>
-        set((s) => ({ installedSkills: [sk, ...s.installedSkills.filter((x) => x.id !== sk.id)] })),
-      uninstallSkill: (id) =>
+      // Skills now persist in IndexedDB (no localStorage quota). Memory mirror = installedSkills.
+      installSkill: (sk) => {
+        set((s) => ({ installedSkills: [sk, ...s.installedSkills.filter((x) => x.id !== sk.id)] }));
+        void saveSkill(sk).catch(() => {});
+      },
+      installSkillsBulk: async (list) => {
+        if (!list.length) return;
+        await saveSkillsBulk(list);
+        set((s) => {
+          const merged = [...list, ...s.installedSkills.filter((x) => !list.find((l) => l.id === x.id))];
+          return { installedSkills: merged };
+        });
+      },
+      uninstallSkill: (id) => {
         set((s) => ({
           installedSkills: s.installedSkills.filter((x) => x.id !== id),
           activeSkill: s.activeSkill === id ? null : s.activeSkill,
-        })),
+        }));
+        void deleteSkill(id).catch(() => {});
+      },
+      hydrateSkills: async () => {
+        if (get().skillsHydrated) return;
+        try {
+          const all = await loadAllSkills();
+          set((s) => {
+            const map = new Map<string, FetchedSkill>();
+            for (const sk of all) map.set(sk.id, sk);
+            for (const sk of s.installedSkills) if (!map.has(sk.id)) map.set(sk.id, sk);
+            return { installedSkills: Array.from(map.values()), skillsHydrated: true };
+          });
+          // Backfill: ensure any pre-existing in-memory skills get persisted to IDB too.
+          const remaining = get().installedSkills.filter((sk) => !all.find((a) => a.id === sk.id));
+          if (remaining.length) await saveSkillsBulk(remaining);
+        } catch {
+          set({ skillsHydrated: true });
+        }
+      },
+      addCustomSource: (src) =>
+        set((s) => ({ customSources: [...s.customSources.filter((x) => x.id !== src.id), src] })),
+      removeCustomSource: (id) =>
+        set((s) => ({ customSources: s.customSources.filter((x) => x.id !== id) })),
     }),
     {
       name: "jarvis-v4-store",
-      version: 2,
+      version: 3,
       migrate: (persisted: any) => {
-        // v1 -> v2: drop legacy `model`, seed activeModel
-        if (persisted && !persisted.activeModel) {
-          persisted.activeModel = DEFAULT_ACTIVE;
-        }
+        if (persisted && !persisted.activeModel) persisted.activeModel = DEFAULT_ACTIVE;
         if (persisted && !persisted.providerKeys) persisted.providerKeys = {};
         if (persisted && !persisted.customProviders) persisted.customProviders = [];
         if (persisted && !persisted.systemPrompt) persisted.systemPrompt = DEFAULT_SYSTEM_PROMPT;
         if (persisted && !persisted.presets) persisted.presets = SYSTEM_PROMPT_PRESETS;
+        if (persisted && !persisted.customSources) persisted.customSources = [];
+        // v2 -> v3: skills moved to IndexedDB. Keep in-memory list; hydrate on boot.
         return persisted;
       },
       partialize: (s) => ({
-        // Trim message content to avoid blowing localStorage on long tool outputs.
         messages: s.messages.slice(-100).map((m) => ({
           ...m,
           content: typeof m.content === "string" && m.content.length > 8000
@@ -253,13 +296,21 @@ export const useJarvis = create<Store>()(
         evalRequired: s.evalRequired,
         audit: s.audit,
         activeSkill: s.activeSkill,
-        installedSkills: s.installedSkills,
+        // installedSkills intentionally NOT persisted here — IndexedDB handles them.
+        customSources: s.customSources,
         docs: s.docs,
-        // Drop heavy text previews from uploads on persist.
         uploads: s.uploads.map((u) => ({ name: u.name, url: u.url, size: u.size, type: u.type })),
         github: s.github,
       }),
       storage: createJSONStorage(() => safeStorage),
+      onRehydrateStorage: () => (state) => {
+        // Pull installed skills from IndexedDB right after rehydration.
+        state?.hydrateSkills?.();
+        // Best-effort: ask browser to grant persistent quota for IDB.
+        if (typeof navigator !== "undefined" && navigator.storage?.persist) {
+          navigator.storage.persist().catch(() => {});
+        }
+      },
     }
   )
 );
