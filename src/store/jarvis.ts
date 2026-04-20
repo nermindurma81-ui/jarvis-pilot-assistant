@@ -237,7 +237,13 @@ export const useJarvis = create<Store>()(
         return persisted;
       },
       partialize: (s) => ({
-        messages: s.messages.slice(-200),
+        // Trim message content to avoid blowing localStorage on long tool outputs.
+        messages: s.messages.slice(-100).map((m) => ({
+          ...m,
+          content: typeof m.content === "string" && m.content.length > 8000
+            ? m.content.slice(0, 8000) + "\n…[truncated for storage]"
+            : m.content,
+        })),
         providerKeys: s.providerKeys,
         customProviders: s.customProviders,
         activeModel: s.activeModel,
@@ -249,9 +255,11 @@ export const useJarvis = create<Store>()(
         activeSkill: s.activeSkill,
         installedSkills: s.installedSkills,
         docs: s.docs,
-        uploads: s.uploads,
+        // Drop heavy text previews from uploads on persist.
+        uploads: s.uploads.map((u) => ({ name: u.name, url: u.url, size: u.size, type: u.type })),
         github: s.github,
       }),
+      storage: createJSONStorage(() => safeStorage),
     }
   )
 );
