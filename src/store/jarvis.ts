@@ -5,7 +5,8 @@ import type { ProviderId, CustomProvider } from "@/lib/providers";
 import { DEFAULT_SYSTEM_PROMPT, SYSTEM_PROMPT_PRESETS, PROVIDERS } from "@/lib/providers";
 import { saveSkill, saveSkillsBulk, deleteSkill, loadAllSkills } from "@/lib/skills-store";
 
-// Quota-safe localStorage: on QuotaExceeded, progressively trim and retry so the app never breaks.
+// Quota-safe localStorage. Heavy data (installed skills) lives in IndexedDB,
+// so this only handles light state (settings, chat msgs). Trims on overflow.
 const safeStorage = {
   getItem: (name: string) => {
     try { return localStorage.getItem(name); } catch { return null; }
