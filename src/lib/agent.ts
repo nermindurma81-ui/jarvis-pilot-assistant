@@ -137,7 +137,7 @@ export async function runAgent(userText: string, cb: StreamCallbacks) {
   s0.setAgentBusy(true);
 
   try {
-    const apiMessages: any[] = s0.messages
+    const rawMessages: any[] = s0.messages
       .filter((m) => m.role !== "tool" || m.toolCallId)
       .map((m) => {
         if (m.role === "tool") return { role: "tool", tool_call_id: m.toolCallId!, content: m.content };
@@ -145,6 +145,25 @@ export async function runAgent(userText: string, cb: StreamCallbacks) {
           return { role: "assistant", content: m.content, tool_calls: m.toolCalls };
         return { role: m.role, content: m.content };
       });
+
+    // Strip orphan tool messages: a `tool` message is only valid if the immediately
+    // preceding assistant turn declared a matching tool_call_id. Otherwise providers
+    // like Mistral throw "Unexpected tool call id ... in tool results".
+    const apiMessages: any[] = [];
+    const validIds = new Set<string>();
+    for (const m of rawMessages) {
+      if (m.role === "assistant" && Array.isArray(m.tool_calls)) {
+        validIds.clear();
+        for (const tc of m.tool_calls) if (tc?.id) validIds.add(tc.id);
+        apiMessages.push(m);
+      } else if (m.role === "tool") {
+        if (validIds.has(m.tool_call_id)) apiMessages.push(m);
+        // else: drop orphan
+      } else {
+        validIds.clear();
+        apiMessages.push(m);
+      }
+    }
     apiMessages.push({ role: "user", content: userText });
 
     const MAX_STEPS = useJarvis.getState().autopilot ? 12 : 6;
