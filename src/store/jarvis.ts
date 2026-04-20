@@ -1,8 +1,38 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, createJSONStorage } from "zustand/middleware";
 import type { FetchedSkill } from "@/lib/skill-marketplace";
 import type { ProviderId, CustomProvider } from "@/lib/providers";
 import { DEFAULT_SYSTEM_PROMPT, SYSTEM_PROMPT_PRESETS, PROVIDERS } from "@/lib/providers";
+
+// Quota-safe localStorage: on QuotaExceeded, progressively trim and retry so the app never breaks.
+const safeStorage = {
+  getItem: (name: string) => {
+    try { return localStorage.getItem(name); } catch { return null; }
+  },
+  setItem: (name: string, value: string) => {
+    try { localStorage.setItem(name, value); return; } catch {}
+    try {
+      const parsed = JSON.parse(value);
+      const st = parsed?.state;
+      if (st) {
+        if (Array.isArray(st.uploads)) st.uploads = st.uploads.map((u: any) => ({ ...u, textPreview: undefined }));
+        try { localStorage.setItem(name, JSON.stringify(parsed)); return; } catch {}
+        if (Array.isArray(st.messages)) st.messages = st.messages.slice(-50);
+        try { localStorage.setItem(name, JSON.stringify(parsed)); return; } catch {}
+        if (Array.isArray(st.messages)) st.messages = st.messages.slice(-10);
+        try { localStorage.setItem(name, JSON.stringify(parsed)); return; } catch {}
+        st.messages = [];
+        try { localStorage.setItem(name, JSON.stringify(parsed)); return; } catch {}
+        st.docs = [];
+        try { localStorage.setItem(name, JSON.stringify(parsed)); return; } catch {}
+      }
+    } catch {}
+    try { localStorage.removeItem(name); } catch {}
+  },
+  removeItem: (name: string) => {
+    try { localStorage.removeItem(name); } catch {}
+  },
+};
 
 export type ChatMessage = {
   id: string;
