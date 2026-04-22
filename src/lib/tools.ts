@@ -207,6 +207,19 @@ export async function executeTool(name: string, argsJson: string): Promise<ToolR
 
       // ─── Skill marketplace (multi-source) ───
       case "skill_search": {
+        const q = (args.query || "").toLowerCase();
+        const scope = args.scope || "marketplace";
+        // Installed scope: search across already-installed skills (used by GOD router).
+        if (scope === "installed") {
+          const cat = (args.category || "").toLowerCase();
+          const hits = s.installedSkills.filter((sk) => {
+            const hay = `${sk.id} ${sk.name} ${sk.description || ""}`.toLowerCase();
+            const matchQ = !q || hay.includes(q);
+            const matchC = !cat || categorize(sk).toLowerCase() === cat;
+            return matchQ && matchC;
+          }).slice(0, args.limit || 30);
+          return { ok: true, result: { scope: "installed", total: s.installedSkills.length, shown: hits.length, results: hits.map((h) => ({ id: h.id, name: h.name, description: h.description, category: categorize(h) })) } };
+        }
         const sourceId = String(args.source || "antigravity");
         const preset =
           SOURCE_PRESETS.find((p) => p.id === sourceId) ||
