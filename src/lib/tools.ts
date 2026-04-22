@@ -1,6 +1,10 @@
 // Client-side tool dispatcher. Runs tool_calls returned by the model.
 import { useJarvis } from "@/store/jarvis";
 import { fetchCatalog, fetchCollectionSkills, fetchSkill, searchCatalog, SOURCE_PRESETS, presetFromCustomRepo, type CatalogEntry } from "@/lib/skill-marketplace";
+import { runSkill } from "@/lib/skill-runner";
+import { buildGodSkill, categorize, GOD_SKILL_ID } from "@/lib/god-skill";
+import { pushSkillsBulk, pullAllSkills, pushMessage } from "@/lib/sync";
+import { showLocalNotification } from "@/lib/push-notify";
 
 export type ToolResult = { ok: boolean; result?: any; error?: string };
 
