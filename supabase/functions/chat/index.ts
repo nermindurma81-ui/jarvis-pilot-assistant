@@ -24,12 +24,20 @@ const TOOL_DEFS = [
   { type: "function", function: { name: "gh_create_pr", description: "Create a GitHub PR via REST API.", parameters: { type: "object", properties: { owner: { type: "string" }, repo: { type: "string" }, title: { type: "string" }, body: { type: "string" }, head: { type: "string" }, base: { type: "string" }, draft: { type: "boolean" } }, required: ["title", "head"] } } },
   { type: "function", function: { name: "gh_workflow_dispatch", description: "Trigger GitHub Actions workflow_dispatch.", parameters: { type: "object", properties: { owner: { type: "string" }, repo: { type: "string" }, workflow_id: { type: "string" }, ref: { type: "string" }, inputs: { type: "object" } }, required: ["workflow_id"] } } },
   { type: "function", function: { name: "gh_status", description: "Return GitHub auth status.", parameters: { type: "object", properties: {} } } },
-  { type: "function", function: { name: "skill_search", description: "Search skill marketplace ('antigravity' or 'skillkit').", parameters: { type: "object", properties: { source: { type: "string", enum: ["antigravity", "skillkit"] }, query: { type: "string" }, collection: { type: "string" }, limit: { type: "number" }, refresh: { type: "boolean" } } } } },
-  { type: "function", function: { name: "skill_install", description: "Install a marketplace skill.", parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } },
+  { type: "function", function: { name: "skill_search", description: "Search the skill marketplace OR currently installed skills. Pass scope='installed' to filter by installed only.", parameters: { type: "object", properties: { source: { type: "string" }, scope: { type: "string", enum: ["installed", "marketplace"] }, category: { type: "string" }, query: { type: "string" }, collection: { type: "string" }, limit: { type: "number" }, refresh: { type: "boolean" } } } } },
+  { type: "function", function: { name: "skill_install", description: "Install a marketplace skill by id.", parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } },
   { type: "function", function: { name: "skill_uninstall", description: "Remove an installed skill.", parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } },
   { type: "function", function: { name: "skill_activate", description: "Activate an installed skill.", parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } } },
   { type: "function", function: { name: "skill_deactivate", description: "Deactivate the active skill.", parameters: { type: "object", properties: {} } } },
-  { type: "function", function: { name: "skill_list_installed", description: "List installed skills.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "skill_list_installed", description: "List installed skills with categories.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "skill_run", description: "Execute ONE installed skill against an input. Returns its output. Use to delegate work to a specialist.", parameters: { type: "object", properties: { id: { type: "string" }, input: { type: "string" } }, required: ["id", "input"] } } },
+  { type: "function", function: { name: "skill_chain", description: "Run installed skills sequentially: output of skill[i] becomes input of skill[i+1].", parameters: { type: "object", properties: { ids: { type: "array", items: { type: "string" } }, input: { type: "string" } }, required: ["ids", "input"] } } },
+  { type: "function", function: { name: "skill_compose", description: "Run installed skills in PARALLEL on the same input and return all outputs.", parameters: { type: "object", properties: { ids: { type: "array", items: { type: "string" } }, input: { type: "string" } }, required: ["ids", "input"] } } },
+  { type: "function", function: { name: "skill_god_rebuild", description: "Rebuild the GOD meta-skill prompt to include all currently-installed skills.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "upload_get_url", description: "Return the public URL for an uploaded file.", parameters: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } } },
+  { type: "function", function: { name: "sync_push", description: "Push installed skills + recent chat to cloud sync.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "sync_pull", description: "Pull installed skills from cloud sync.", parameters: { type: "object", properties: {} } } },
+  { type: "function", function: { name: "push_notify", description: "Show a local browser notification (also delivered via web push if registered).", parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" } }, required: ["title", "body"] } } },
 ];
 
 const AUTOPILOT_INJECT = `\n\nAUTOPILOT ACTIVE — aggressive mode:\n- MAX 12 self-iteration steps. Keep calling tools and refining until eval_response.passed=true.\n- Never ask user clarifying questions; pick most reasonable interpretation and execute.\n- After each tool result, decide: continue executing or call eval_response.`;
@@ -153,10 +161,20 @@ Deno.serve(async (req) => {
       skillPrompt = "",
       uploads = [],
       systemPrompt = "",
+      stream: wantStream = true,
+      noTools = false,
     } = body;
+    // Allow caller to pass `provider` as object {id,baseUrl,apiStyle,apiKey}
+    let provId = provider, provStyle = apiStyle, provBase = baseUrl, provKey = apiKey;
+    if (provider && typeof provider === "object") {
+      provId = provider.id || "openai";
+      provStyle = provider.apiStyle || "openai";
+      provBase = provider.baseUrl || provBase;
+      provKey = provider.apiKey || "";
+    }
 
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: `Nema API ključa za ${provider}. Otvori Settings → Providers i unesi ključ.` }), {
+    if (!provKey) {
+      return new Response(JSON.stringify({ error: `Nema API ključa za ${provId}. Otvori Settings → Providers i unesi ključ.` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -175,34 +193,37 @@ Deno.serve(async (req) => {
     let upstreamHeaders: Record<string, string>;
     let upstreamBody: string;
     let translateAnthropic = false;
+    const useTools = !noTools;
 
-    if (apiStyle === "anthropic") {
-      upstreamUrl = `${baseUrl.replace(/\/$/, "")}/messages`;
+    if (provStyle === "anthropic") {
+      upstreamUrl = `${provBase.replace(/\/$/, "")}/messages`;
       upstreamHeaders = {
-        "x-api-key": apiKey,
+        "x-api-key": provKey,
         "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       };
-      upstreamBody = JSON.stringify(toAnthropic(messages, systemContent, model, TOOL_DEFS));
-      translateAnthropic = true;
+      const ab: any = toAnthropic(messages, systemContent, model, useTools ? TOOL_DEFS : []);
+      ab.stream = wantStream;
+      if (!useTools) delete ab.tools;
+      upstreamBody = JSON.stringify(ab);
+      translateAnthropic = wantStream;
     } else {
-      // OpenAI-compatible (works for OpenAI, Google AI compat, Mistral, DeepSeek, OpenRouter, Custom)
-      upstreamUrl = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+      upstreamUrl = `${provBase.replace(/\/$/, "")}/chat/completions`;
       upstreamHeaders = {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${provKey}`,
         "Content-Type": "application/json",
       };
-      // OpenRouter wants extra headers (optional)
-      if (provider === "openrouter") {
+      if (provId === "openrouter") {
         upstreamHeaders["HTTP-Referer"] = "https://jarvis-pilot-assistant.lovable.app";
         upstreamHeaders["X-Title"] = "JARVIS v4";
       }
-      upstreamBody = JSON.stringify({
+      const obj: any = {
         model,
         messages: [{ role: "system", content: systemContent }, ...messages],
-        tools: TOOL_DEFS,
-        stream: true,
-      });
+        stream: wantStream,
+      };
+      if (useTools) obj.tools = TOOL_DEFS;
+      upstreamBody = JSON.stringify(obj);
     }
 
     const upstream = await fetch(upstreamUrl, {
@@ -213,12 +234,12 @@ Deno.serve(async (req) => {
 
     if (!upstream.ok || !upstream.body) {
       const text = await upstream.text().catch(() => "");
-      console.error(`Upstream ${provider} ${upstream.status}:`, text.slice(0, 500));
-      let msg = `${provider} returned ${upstream.status}`;
-      if (upstream.status === 401) msg = `${provider}: API ključ nije validan.`;
-      else if (upstream.status === 429) msg = `${provider}: rate limit. Sačekaj malo.`;
-      else if (upstream.status === 402 || upstream.status === 403) msg = `${provider}: nema kredita ili pristup odbijen.`;
-      else if (upstream.status === 404) msg = `${provider}: model "${model}" ne postoji ili nije dostupan tvom ključu.`;
+      console.error(`Upstream ${provId} ${upstream.status}:`, text.slice(0, 500));
+      let msg = `${provId} returned ${upstream.status}`;
+      if (upstream.status === 401) msg = `${provId}: API ključ nije validan.`;
+      else if (upstream.status === 429) msg = `${provId}: rate limit. Sačekaj malo.`;
+      else if (upstream.status === 402 || upstream.status === 403) msg = `${provId}: nema kredita ili pristup odbijen.`;
+      else if (upstream.status === 404) msg = `${provId}: model "${model}" ne postoji ili nije dostupan tvom ključu.`;
       try {
         const j = JSON.parse(text);
         msg = j.error?.message || j.message || msg;
@@ -227,6 +248,19 @@ Deno.serve(async (req) => {
         status: upstream.status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    if (!wantStream) {
+      // Pass through JSON; for Anthropic, normalize into OpenAI shape
+      if (provStyle === "anthropic") {
+        const j = await upstream.json();
+        const text = (j.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
+        return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: text } }] }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const j = await upstream.json();
+      return new Response(JSON.stringify(j), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const responseStream = translateAnthropic ? anthropicToOpenAIStream(upstream.body) : upstream.body;

@@ -187,11 +187,27 @@ Then call eval_response. Criteria: profile complete, exactly 5 insights, ≥1 ch
 ];
 
 // Resolve a skill by id from BOTH built-ins AND installed marketplace skills.
-// We read the persisted store from localStorage to avoid a circular import.
+// We read in-memory from useJarvis to support the synthetic GOD skill (id "jarvis:god").
 export const skillById = (id: string | null): Skill | null => {
   if (!id) return null;
   const builtin = SKILLS.find((s) => s.id === id);
   if (builtin) return builtin;
+  // 1) try in-memory store (fast, also covers GOD)
+  try {
+    // dynamic import to avoid circular dep at module load
+    const { useJarvis } = require("@/store/jarvis") as typeof import("@/store/jarvis");
+    const installed = useJarvis.getState().installedSkills.find((s) => s.id === id);
+    if (installed) {
+      return {
+        id: installed.id,
+        name: installed.name,
+        icon: installed.id === "jarvis:god" ? "🧠" : "🧩",
+        description: installed.description || "Marketplace skill",
+        prompt: installed.prompt,
+      };
+    }
+  } catch {}
+  // 2) fallback to localStorage snapshot
   try {
     const raw = localStorage.getItem("jarvis-v4-store");
     if (!raw) return null;
@@ -201,7 +217,7 @@ export const skillById = (id: string | null): Skill | null => {
       return {
         id: installed.id,
         name: installed.name,
-        icon: "🧩",
+        icon: installed.id === "jarvis:god" ? "🧠" : "🧩",
         description: installed.description || "Marketplace skill",
         prompt: installed.prompt,
       };

@@ -1,6 +1,10 @@
 // Client-side tool dispatcher. Runs tool_calls returned by the model.
 import { useJarvis } from "@/store/jarvis";
 import { fetchCatalog, fetchCollectionSkills, fetchSkill, searchCatalog, SOURCE_PRESETS, presetFromCustomRepo, type CatalogEntry } from "@/lib/skill-marketplace";
+import { runSkill } from "@/lib/skill-runner";
+import { buildGodSkill, categorize, GOD_SKILL_ID } from "@/lib/god-skill";
+import { pushSkillsBulk, pullAllSkills, pushMessage } from "@/lib/sync";
+import { showLocalNotification } from "@/lib/push-notify";
 
 export type ToolResult = { ok: boolean; result?: any; error?: string };
 
@@ -203,6 +207,19 @@ export async function executeTool(name: string, argsJson: string): Promise<ToolR
 
       // ─── Skill marketplace (multi-source) ───
       case "skill_search": {
+        const q = (args.query || "").toLowerCase();
+        const scope = args.scope || "marketplace";
+        // Installed scope: search across already-installed skills (used by GOD router).
+        if (scope === "installed") {
+          const cat = (args.category || "").toLowerCase();
+          const hits = s.installedSkills.filter((sk) => {
+            const hay = `${sk.id} ${sk.name} ${sk.description || ""}`.toLowerCase();
+            const matchQ = !q || hay.includes(q);
+            const matchC = !cat || categorize(sk).toLowerCase() === cat;
+            return matchQ && matchC;
+          }).slice(0, args.limit || 30);
+          return { ok: true, result: { scope: "installed", total: s.installedSkills.length, shown: hits.length, results: hits.map((h) => ({ id: h.id, name: h.name, description: h.description, category: categorize(h) })) } };
+        }
         const sourceId = String(args.source || "antigravity");
         const preset =
           SOURCE_PRESETS.find((p) => p.id === sourceId) ||
@@ -267,8 +284,73 @@ export async function executeTool(name: string, argsJson: string): Promise<ToolR
           ok: true,
           result: s.installedSkills.map((x) => ({
             id: x.id, name: x.name, description: x.description, risk: x.risk,
+            category: categorize(x),
           })),
         };
+      }
+
+      // ─── GOD skill orchestration ───
+      case "skill_run": {
+        if (!args.id || typeof args.input !== "string") return { ok: false, error: "id+input required" };
+        const sk = s.installedSkills.find((x) => x.id === args.id);
+        if (!sk) return { ok: false, error: `Skill not installed: ${args.id}` };
+        const out = await runSkill(sk.prompt, args.input);
+        return { ok: true, result: { skill: sk.id, output: out } };
+      }
+      case "skill_chain": {
+        const ids: string[] = Array.isArray(args.ids) ? args.ids : [];
+        if (!ids.length || typeof args.input !== "string") return { ok: false, error: "ids[]+input required" };
+        const trace: any[] = [];
+        let current = args.input;
+        for (const id of ids) {
+          const sk = s.installedSkills.find((x) => x.id === id);
+          if (!sk) { trace.push({ id, error: "not installed" }); continue; }
+          try {
+            const out = await runSkill(sk.prompt, current);
+            trace.push({ id, name: sk.name, output: out.slice(0, 4000) });
+            current = out;
+          } catch (e: any) { trace.push({ id, error: e.message }); }
+        }
+        return { ok: true, result: { final: current, trace } };
+      }
+      case "skill_compose": {
+        const ids: string[] = Array.isArray(args.ids) ? args.ids : [];
+        if (!ids.length || typeof args.input !== "string") return { ok: false, error: "ids[]+input required" };
+        const settled = await Promise.all(ids.map(async (id) => {
+          const sk = s.installedSkills.find((x) => x.id === id);
+          if (!sk) return { id, error: "not installed" };
+          try { return { id, name: sk.name, output: await runSkill(sk.prompt, args.input) }; }
+          catch (e: any) { return { id, error: e.message }; }
+        }));
+        return { ok: true, result: { outputs: settled } };
+      }
+      case "skill_god_rebuild": {
+        const god = buildGodSkill(s.installedSkills.filter((x) => x.id !== GOD_SKILL_ID));
+        s.installSkill(god);
+        return { ok: true, result: { id: god.id, indexed: s.installedSkills.length, description: god.description } };
+      }
+
+      // ─── Uploads / Sync / Push ───
+      case "upload_get_url": {
+        const u = s.uploads.find((x) => x.name === args.name);
+        if (!u) return { ok: false, error: "upload not found" };
+        return { ok: true, result: { name: u.name, url: u.url, size: u.size, type: u.type } };
+      }
+      case "sync_push": {
+        const skills = s.installedSkills;
+        await pushSkillsBulk(skills);
+        await Promise.all(s.messages.slice(-50).map((m) => pushMessage(m)));
+        return { ok: true, result: { pushedSkills: skills.length, pushedMessages: Math.min(s.messages.length, 50) } };
+      }
+      case "sync_pull": {
+        const remote = await pullAllSkills();
+        if (remote.length) await s.installSkillsBulk(remote);
+        return { ok: true, result: { pulled: remote.length } };
+      }
+      case "push_notify": {
+        if (!args.title || !args.body) return { ok: false, error: "title+body required" };
+        await showLocalNotification(args.title, args.body);
+        return { ok: true, result: { delivered: true } };
       }
 
       default:
