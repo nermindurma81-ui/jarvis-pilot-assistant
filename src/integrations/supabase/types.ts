@@ -14,7 +14,93 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      push_devices: {
+        Row: {
+          auth: string
+          created_at: string
+          device_id: string
+          endpoint: string
+          id: string
+          p256dh: string
+          ua: string | null
+        }
+        Insert: {
+          auth: string
+          created_at?: string
+          device_id: string
+          endpoint: string
+          id?: string
+          p256dh: string
+          ua?: string | null
+        }
+        Update: {
+          auth?: string
+          created_at?: string
+          device_id?: string
+          endpoint?: string
+          id?: string
+          p256dh?: string
+          ua?: string | null
+        }
+        Relationships: []
+      }
+      synced_messages: {
+        Row: {
+          content: string
+          created_at: string
+          device_id: string
+          id: string
+          meta: Json | null
+          msg_id: string
+          role: string
+          ts: number
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          device_id: string
+          id?: string
+          meta?: Json | null
+          msg_id: string
+          role: string
+          ts: number
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          device_id?: string
+          id?: string
+          meta?: Json | null
+          msg_id?: string
+          role?: string
+          ts?: number
+        }
+        Relationships: []
+      }
+      synced_skills: {
+        Row: {
+          device_id: string
+          id: string
+          payload: Json
+          skill_id: string
+          updated_at: string
+        }
+        Insert: {
+          device_id: string
+          id?: string
+          payload: Json
+          skill_id: string
+          updated_at?: string
+        }
+        Update: {
+          device_id?: string
+          id?: string
+          payload?: Json
+          skill_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
