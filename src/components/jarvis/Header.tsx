@@ -14,13 +14,43 @@ type Props = {
 };
 
 export const Header = ({ onOpenSettings, onOpenTerminal, onOpenMarketplace }: Props) => {
-  const { activeModel, setActiveModel, autopilot, setAutopilot, github, installedSkills, providerKeys, customProviders } = useJarvis();
+  const { activeModel, setActiveModel, autopilot, setAutopilot, github, installedSkills, providerKeys, customProviders, activeSkill, setActiveSkill, installSkill } = useJarvis();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const active = resolveActiveModel();
   const hasKey = !!active?.apiKey;
+  const godActive = activeSkill === GOD_SKILL_ID;
   const shortLabel = active
     ? `${active.providerId.toString().replace("custom:", "")}/${active.modelId.split("/").pop()}`
     : "no model";
+
+  const toggleGod = () => {
+    if (godActive) { setActiveSkill(null); toast.info("GOD off"); return; }
+    const all = installedSkills.filter((x) => x.id !== GOD_SKILL_ID);
+    if (!all.length) { toast.error("Nema instaliranih skillova. Otvori Marketplace."); return; }
+    const god = buildGodSkill(all);
+    installSkill(god);
+    setActiveSkill(GOD_SKILL_ID);
+    toast.success(`🧠 GOD aktiviran (${all.length} skillova)`);
+  };
+
+  const doSync = async () => {
+    setSyncing(true);
+    try {
+      const remote = await pullAllSkills();
+      if (remote.length) await useJarvis.getState().installSkillsBulk(remote);
+      const all = useJarvis.getState().installedSkills;
+      await pushSkillsBulk(all);
+      toast.success(`Sync: ↓${remote.length} ↑${all.length}`);
+    } catch (e: any) {
+      toast.error(`Sync fail: ${e.message}`);
+    } finally { setSyncing(false); }
+  };
+
+  const enablePush = async () => {
+    const r = await registerPush();
+    r.ok ? toast.success(r.message) : toast.error(r.message);
+  };
 
   return (
     <header className="flex items-center gap-1.5 px-2 sm:px-4 py-2 border-b border-primary/20 bg-background-elev/80 backdrop-blur-xl flex-shrink-0">
