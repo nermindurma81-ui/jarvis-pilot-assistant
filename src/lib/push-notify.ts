@@ -20,7 +20,7 @@ export async function registerPush(vapidPublicKey?: string): Promise<{ ok: boole
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
       const opts: PushSubscriptionOptionsInit = { userVisibleOnly: true };
-      if (vapidPublicKey) opts.applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
+      if (vapidPublicKey) opts.applicationServerKey = urlBase64ToUint8Array(vapidPublicKey).buffer as ArrayBuffer;
       sub = await reg.pushManager.subscribe(opts);
     }
     const j = sub.toJSON();
