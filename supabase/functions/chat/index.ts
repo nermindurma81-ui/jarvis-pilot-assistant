@@ -173,8 +173,8 @@ Deno.serve(async (req) => {
       provKey = provider.apiKey || "";
     }
 
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: `Nema API ključa za ${provider}. Otvori Settings → Providers i unesi ključ.` }), {
+    if (!provKey) {
+      return new Response(JSON.stringify({ error: `Nema API ključa za ${provId}. Otvori Settings → Providers i unesi ključ.` }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -193,34 +193,37 @@ Deno.serve(async (req) => {
     let upstreamHeaders: Record<string, string>;
     let upstreamBody: string;
     let translateAnthropic = false;
+    const useTools = !noTools;
 
-    if (apiStyle === "anthropic") {
-      upstreamUrl = `${baseUrl.replace(/\/$/, "")}/messages`;
+    if (provStyle === "anthropic") {
+      upstreamUrl = `${provBase.replace(/\/$/, "")}/messages`;
       upstreamHeaders = {
-        "x-api-key": apiKey,
+        "x-api-key": provKey,
         "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       };
-      upstreamBody = JSON.stringify(toAnthropic(messages, systemContent, model, TOOL_DEFS));
-      translateAnthropic = true;
+      const ab: any = toAnthropic(messages, systemContent, model, useTools ? TOOL_DEFS : []);
+      ab.stream = wantStream;
+      if (!useTools) delete ab.tools;
+      upstreamBody = JSON.stringify(ab);
+      translateAnthropic = wantStream;
     } else {
-      // OpenAI-compatible (works for OpenAI, Google AI compat, Mistral, DeepSeek, OpenRouter, Custom)
-      upstreamUrl = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+      upstreamUrl = `${provBase.replace(/\/$/, "")}/chat/completions`;
       upstreamHeaders = {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${provKey}`,
         "Content-Type": "application/json",
       };
-      // OpenRouter wants extra headers (optional)
-      if (provider === "openrouter") {
+      if (provId === "openrouter") {
         upstreamHeaders["HTTP-Referer"] = "https://jarvis-pilot-assistant.lovable.app";
         upstreamHeaders["X-Title"] = "JARVIS v4";
       }
-      upstreamBody = JSON.stringify({
+      const obj: any = {
         model,
         messages: [{ role: "system", content: systemContent }, ...messages],
-        tools: TOOL_DEFS,
-        stream: true,
-      });
+        stream: wantStream,
+      };
+      if (useTools) obj.tools = TOOL_DEFS;
+      upstreamBody = JSON.stringify(obj);
     }
 
     const upstream = await fetch(upstreamUrl, {
@@ -231,12 +234,12 @@ Deno.serve(async (req) => {
 
     if (!upstream.ok || !upstream.body) {
       const text = await upstream.text().catch(() => "");
-      console.error(`Upstream ${provider} ${upstream.status}:`, text.slice(0, 500));
-      let msg = `${provider} returned ${upstream.status}`;
-      if (upstream.status === 401) msg = `${provider}: API ključ nije validan.`;
-      else if (upstream.status === 429) msg = `${provider}: rate limit. Sačekaj malo.`;
-      else if (upstream.status === 402 || upstream.status === 403) msg = `${provider}: nema kredita ili pristup odbijen.`;
-      else if (upstream.status === 404) msg = `${provider}: model "${model}" ne postoji ili nije dostupan tvom ključu.`;
+      console.error(`Upstream ${provId} ${upstream.status}:`, text.slice(0, 500));
+      let msg = `${provId} returned ${upstream.status}`;
+      if (upstream.status === 401) msg = `${provId}: API ključ nije validan.`;
+      else if (upstream.status === 429) msg = `${provId}: rate limit. Sačekaj malo.`;
+      else if (upstream.status === 402 || upstream.status === 403) msg = `${provId}: nema kredita ili pristup odbijen.`;
+      else if (upstream.status === 404) msg = `${provId}: model "${model}" ne postoji ili nije dostupan tvom ključu.`;
       try {
         const j = JSON.parse(text);
         msg = j.error?.message || j.message || msg;
@@ -245,6 +248,19 @@ Deno.serve(async (req) => {
         status: upstream.status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    if (!wantStream) {
+      // Pass through JSON; for Anthropic, normalize into OpenAI shape
+      if (provStyle === "anthropic") {
+        const j = await upstream.json();
+        const text = (j.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
+        return new Response(JSON.stringify({ choices: [{ message: { role: "assistant", content: text } }] }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const j = await upstream.json();
+      return new Response(JSON.stringify(j), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const responseStream = translateAnthropic ? anthropicToOpenAIStream(upstream.body) : upstream.body;
