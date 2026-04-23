@@ -1,1 +1,4 @@
 project_id = "uhoylzblorcjwlrsgwmf"
+
+[functions.mcp-server]
+verify_jwt = false
