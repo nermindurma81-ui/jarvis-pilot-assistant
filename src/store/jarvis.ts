@@ -91,6 +91,13 @@ type Store = {
   activeSkill: string | null;
   installedSkills: FetchedSkill[];
   skillsHydrated: boolean;
+  // Tools panel: names of tools the user has disabled.
+  disabledTools: string[];
+  // Sync status for header indicator.
+  syncStatus: "idle" | "syncing" | "synced" | "error" | "offline";
+  syncLastAt: number | null;
+  // Dual-agent (Hermes planner + Goose executor) toggle.
+  dualAgent: boolean;
   // Custom marketplace sources (user-added GitHub repos)
   customSources: { id: string; label: string; repo: string; ref?: string; rootPath?: string }[];
   // Data
@@ -130,6 +137,11 @@ type Store = {
   hydrateSkills: () => Promise<void>;
   addCustomSource: (src: { id: string; label: string; repo: string; ref?: string; rootPath?: string }) => void;
   removeCustomSource: (id: string) => void;
+  toggleTool: (name: string) => void;
+  enableAllTools: () => void;
+  disableAllTools: () => void;
+  setSyncStatus: (s: Store["syncStatus"]) => void;
+  setDualAgent: (b: boolean) => void;
 };
 
 const DEFAULT_ACTIVE: ActiveModel = {
@@ -166,6 +178,10 @@ export const useJarvis = create<Store>()(
       activeSkill: null,
       installedSkills: [],
       skillsHydrated: false,
+      disabledTools: [],
+      syncStatus: "idle",
+      syncLastAt: null,
+      dualAgent: false,
       customSources: [],
       docs: [],
       uploads: [],
@@ -266,6 +282,18 @@ export const useJarvis = create<Store>()(
         set((s) => ({ customSources: [...s.customSources.filter((x) => x.id !== src.id), src] })),
       removeCustomSource: (id) =>
         set((s) => ({ customSources: s.customSources.filter((x) => x.id !== id) })),
+      toggleTool: (name) =>
+        set((s) => ({
+          disabledTools: s.disabledTools.includes(name)
+            ? s.disabledTools.filter((n) => n !== name)
+            : [...s.disabledTools, name],
+        })),
+      enableAllTools: () => set({ disabledTools: [] }),
+      disableAllTools: () =>
+        // Keep eval_response always on (autopilot loop depends on it).
+        set({ disabledTools: ["run_js", "http_fetch", "web_search", "web_fetch", "doc_save", "doc_list", "doc_get", "doc_delete", "doc_export", "audit_status", "gh_create_issue", "gh_create_pr", "gh_workflow_dispatch", "gh_status", "skill_search", "skill_install", "skill_uninstall", "skill_activate", "skill_deactivate", "skill_list_installed", "skill_run", "skill_chain", "skill_compose", "skill_god_rebuild", "list_uploads", "read_upload", "upload_get_url", "sync_push", "sync_pull", "push_notify", "write_file_artifact"] }),
+      setSyncStatus: (s) => set({ syncStatus: s, syncLastAt: s === "synced" ? Date.now() : get().syncLastAt }),
+      setDualAgent: (b) => set({ dualAgent: b }),
     }),
     {
       name: "jarvis-v4-store",
@@ -296,6 +324,8 @@ export const useJarvis = create<Store>()(
         evalRequired: s.evalRequired,
         audit: s.audit,
         activeSkill: s.activeSkill,
+        disabledTools: s.disabledTools,
+        dualAgent: s.dualAgent,
         // installedSkills intentionally NOT persisted here — IndexedDB handles them.
         customSources: s.customSources,
         docs: s.docs,

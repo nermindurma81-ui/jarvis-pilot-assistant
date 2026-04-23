@@ -38,9 +38,13 @@ const TOOL_DEFS = [
   { type: "function", function: { name: "sync_push", description: "Push installed skills + recent chat to cloud sync.", parameters: { type: "object", properties: {} } } },
   { type: "function", function: { name: "sync_pull", description: "Pull installed skills from cloud sync.", parameters: { type: "object", properties: {} } } },
   { type: "function", function: { name: "push_notify", description: "Show a local browser notification (also delivered via web push if registered).", parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" } }, required: ["title", "body"] } } },
+  { type: "function", function: { name: "web_search", description: "Search the live internet (DuckDuckGo, no API key). Returns top results with title/url/snippet. Use whenever the user asks about current events, libraries, docs, or anything you don't already know.", parameters: { type: "object", properties: { query: { type: "string" }, limit: { type: "number" } }, required: ["query"] } } },
+  { type: "function", function: { name: "web_fetch", description: "Fetch a webpage and return cleaned text content (HTML stripped). Use after web_search to read full pages.", parameters: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } } },
 ];
 
 const AUTOPILOT_INJECT = `\n\nAUTOPILOT ACTIVE — aggressive mode:\n- MAX 12 self-iteration steps. Keep calling tools and refining until eval_response.passed=true.\n- Never ask user clarifying questions; pick most reasonable interpretation and execute.\n- After each tool result, decide: continue executing or call eval_response.`;
+
+const DUAL_AGENT_INJECT = `\n\nDUAL-AGENT MODE (Hermes + Goose):\n- You operate as TWO collaborating personas in one loop.\n- HERMES (planner/reasoner): decompose the goal, pick which tools or skills to call, validate prior outputs.\n- GOOSE (executor): actually call tools (skill_run, web_search, http_fetch, etc.) and produce artifacts.\n- Cycle: [HERMES] plan → [GOOSE] execute → [HERMES] cross-check → repeat → eval_response.\n- Mark each text segment with [HERMES] or [GOOSE] prefix for clarity.\n- If GOOSE output looks wrong/hallucinated, HERMES must re-plan and re-execute.`;
 
 // Convert OpenAI-style messages → Anthropic format
 function toAnthropic(messages: any[], systemContent: string, model: string, tools: any[]) {
@@ -163,6 +167,8 @@ Deno.serve(async (req) => {
       systemPrompt = "",
       stream: wantStream = true,
       noTools = false,
+      disabledTools = [],
+      dualAgent = false,
     } = body;
     // Allow caller to pass `provider` as object {id,baseUrl,apiStyle,apiKey}
     let provId = provider, provStyle = apiStyle, provBase = baseUrl, provKey = apiKey;
@@ -182,12 +188,18 @@ Deno.serve(async (req) => {
 
     let systemContent = systemPrompt || "You are a helpful AI assistant.";
     if (autopilot) systemContent += AUTOPILOT_INJECT;
+    if (dualAgent) systemContent += DUAL_AGENT_INJECT;
     if (activeSkill && skillPrompt) {
       systemContent += `\n\n=== ACTIVE SKILL: ${activeSkill} ===\n${skillPrompt}\n=== END SKILL ===\nYou MUST follow this skill's contract strictly.`;
     }
     if (uploads.length) {
       systemContent += `\n\nUPLOADED FILES THIS SESSION:\n${uploads.map((u: any) => `- ${u.name} (${u.size} bytes, ${u.type || "unknown"}) — url: ${u.url}`).join("\n")}\nUse \`read_upload\` to read text content.`;
     }
+
+    // Filter tools by user's per-tool toggles. eval_response is always available.
+    const disabled = new Set<string>(Array.isArray(disabledTools) ? disabledTools : []);
+    disabled.delete("eval_response");
+    const ACTIVE_TOOLS = TOOL_DEFS.filter((t) => !disabled.has(t.function.name));
 
     let upstreamUrl: string;
     let upstreamHeaders: Record<string, string>;
@@ -202,7 +214,7 @@ Deno.serve(async (req) => {
         "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       };
-      const ab: any = toAnthropic(messages, systemContent, model, useTools ? TOOL_DEFS : []);
+      const ab: any = toAnthropic(messages, systemContent, model, useTools ? ACTIVE_TOOLS : []);
       ab.stream = wantStream;
       if (!useTools) delete ab.tools;
       upstreamBody = JSON.stringify(ab);
@@ -222,7 +234,7 @@ Deno.serve(async (req) => {
         messages: [{ role: "system", content: systemContent }, ...messages],
         stream: wantStream,
       };
-      if (useTools) obj.tools = TOOL_DEFS;
+      if (useTools) obj.tools = ACTIVE_TOOLS;
       upstreamBody = JSON.stringify(obj);
     }
 

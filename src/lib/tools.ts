@@ -353,6 +353,31 @@ export async function executeTool(name: string, argsJson: string): Promise<ToolR
         return { ok: true, result: { delivered: true } };
       }
 
+      case "web_search": {
+        if (!args.query) return { ok: false, error: "query required" };
+        const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/web-search`;
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
+          body: JSON.stringify({ query: args.query, limit: args.limit || 6 }),
+        });
+        const data = await r.json();
+        if (!r.ok) return { ok: false, error: data.error || `web_search ${r.status}` };
+        return { ok: true, result: data };
+      }
+      case "web_fetch": {
+        if (!args.url) return { ok: false, error: "url required" };
+        const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/web-search`;
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}` },
+          body: JSON.stringify({ fetchUrl: args.url }),
+        });
+        const data = await r.json();
+        if (!r.ok) return { ok: false, error: data.error || `web_fetch ${r.status}` };
+        return { ok: true, result: data };
+      }
+
       default:
         return { ok: false, error: `Unknown tool: ${name}` };
     }
