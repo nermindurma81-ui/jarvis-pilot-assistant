@@ -46,9 +46,11 @@ async function streamOnce(messages: any[], cb: StreamCallbacks): Promise<{
       apiKey: active.apiKey,
       systemPrompt: s.systemPrompt,
       autopilot: s.autopilot,
+      dualAgent: s.dualAgent,
       activeSkill: skill?.name || null,
       skillPrompt: skill?.prompt || "",
       uploads: s.uploads.map((u) => ({ name: u.name, url: u.url, size: u.size, type: u.type })),
+      disabledTools: s.disabledTools,
     }),
   });
 
