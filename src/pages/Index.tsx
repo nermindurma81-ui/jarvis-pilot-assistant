@@ -6,6 +6,7 @@ import { Composer } from "@/components/jarvis/Composer";
 import { SettingsSheet } from "@/components/jarvis/SettingsSheet";
 import { TerminalSheet } from "@/components/jarvis/TerminalSheet";
 import { MarketplaceSheet } from "@/components/jarvis/MarketplaceSheet";
+import { ToolsSheet } from "@/components/jarvis/ToolsSheet";
 import { useJarvis } from "@/store/jarvis";
 import { runAgent } from "@/lib/agent";
 import { toast } from "sonner";
@@ -14,6 +15,7 @@ const Index = () => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const { addMessage, updateMessage, isAgentBusy, enqueue, drainQueue, uploads } = useJarvis();
 
   // Drain queue when agent becomes free
@@ -76,6 +78,7 @@ const Index = () => {
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenTerminal={() => setTerminalOpen(true)}
         onOpenMarketplace={() => setMarketplaceOpen(true)}
+        onOpenTools={() => setToolsOpen(true)}
       />
       <SkillBar />
       <ChatStream />
@@ -83,6 +86,7 @@ const Index = () => {
       <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} />
       <TerminalSheet open={terminalOpen} onOpenChange={setTerminalOpen} />
       <MarketplaceSheet open={marketplaceOpen} onOpenChange={setMarketplaceOpen} />
+      <ToolsSheet open={toolsOpen} onOpenChange={setToolsOpen} />
     </main>
   );
 };

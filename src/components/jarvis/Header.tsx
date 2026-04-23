@@ -1,5 +1,5 @@
 import { useJarvis, resolveActiveModel } from "@/store/jarvis";
-import { Settings2, Rocket, Terminal as TerminalIcon, Cpu, Store, ChevronDown, KeyRound, Brain, Cloud, BellRing } from "lucide-react";
+import { Settings2, Rocket, Terminal as TerminalIcon, Cpu, Store, ChevronDown, KeyRound, Brain, Cloud, BellRing, Wrench, Users } from "lucide-react";
 import { PROVIDERS } from "@/lib/providers";
 import { useState } from "react";
 import { GOD_SKILL_ID, buildGodSkill } from "@/lib/god-skill";
@@ -11,10 +11,11 @@ type Props = {
   onOpenSettings: () => void;
   onOpenTerminal: () => void;
   onOpenMarketplace: () => void;
+  onOpenTools: () => void;
 };
 
-export const Header = ({ onOpenSettings, onOpenTerminal, onOpenMarketplace }: Props) => {
-  const { activeModel, setActiveModel, autopilot, setAutopilot, github, installedSkills, providerKeys, customProviders, activeSkill, setActiveSkill, installSkill } = useJarvis();
+export const Header = ({ onOpenSettings, onOpenTerminal, onOpenMarketplace, onOpenTools }: Props) => {
+  const { activeModel, setActiveModel, autopilot, setAutopilot, github, installedSkills, providerKeys, customProviders, activeSkill, setActiveSkill, installSkill, syncStatus, syncLastAt, setSyncStatus, dualAgent, setDualAgent, disabledTools } = useJarvis();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const active = resolveActiveModel();
@@ -36,13 +37,16 @@ export const Header = ({ onOpenSettings, onOpenTerminal, onOpenMarketplace }: Pr
 
   const doSync = async () => {
     setSyncing(true);
+    setSyncStatus("syncing");
     try {
       const remote = await pullAllSkills();
       if (remote.length) await useJarvis.getState().installSkillsBulk(remote);
       const all = useJarvis.getState().installedSkills;
       await pushSkillsBulk(all);
+      setSyncStatus("synced");
       toast.success(`Sync: ↓${remote.length} ↑${all.length}`);
     } catch (e: any) {
+      setSyncStatus("error");
       toast.error(`Sync fail: ${e.message}`);
     } finally { setSyncing(false); }
   };
@@ -179,11 +183,34 @@ export const Header = ({ onOpenSettings, onOpenTerminal, onOpenMarketplace }: Pr
       >
         <Brain className="w-4 h-4" />
       </button>
-      <button onClick={doSync} disabled={syncing} title="Cloud sync (skills + chat)" className="p-1.5 rounded border border-primary/20 hover:border-primary/60 hover:bg-primary/10 text-primary transition disabled:opacity-50">
+      <button
+        onClick={() => setDualAgent(!dualAgent)}
+        title={dualAgent ? "Hermes+Goose dual-agent ON" : "Aktiviraj dual-agent (Hermes planner + Goose executor)"}
+        className={`hidden sm:inline-flex p-1.5 rounded border transition ${dualAgent ? "border-violet-400 bg-violet-400/15 text-violet-300 shadow-[0_0_10px_hsl(280_80%_60%/0.5)]" : "border-primary/20 hover:border-primary/60 text-primary"}`}
+      >
+        <Users className="w-4 h-4" />
+      </button>
+      <button onClick={doSync} disabled={syncing} title={`Cloud sync${syncLastAt ? ` · ${new Date(syncLastAt).toLocaleTimeString()}` : ""}`} className="relative p-1.5 rounded border border-primary/20 hover:border-primary/60 hover:bg-primary/10 text-primary transition disabled:opacity-50">
         <Cloud className={`w-4 h-4 ${syncing ? "animate-pulse" : ""}`} />
+        <span
+          className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-background ${
+            syncStatus === "syncing" ? "bg-warning animate-pulse"
+            : syncStatus === "synced" ? "bg-success"
+            : syncStatus === "error" ? "bg-destructive"
+            : "bg-foreground-dim"
+          }`}
+        />
       </button>
       <button onClick={enablePush} title="Enable push notifications" className="hidden sm:inline-flex p-1.5 rounded border border-primary/20 hover:border-primary/60 hover:bg-primary/10 text-primary transition">
         <BellRing className="w-4 h-4" />
+      </button>
+      <button onClick={onOpenTools} title={`Tools panel (${33 - disabledTools.length}/33 active)`} className="relative p-1.5 rounded border border-primary/20 hover:border-primary/60 hover:bg-primary/10 text-primary transition">
+        <Wrench className="w-4 h-4" />
+        {disabledTools.length > 0 && (
+          <span className="absolute -top-1 -right-1 text-[9px] font-mono bg-warning text-background rounded-full min-w-[14px] h-3.5 px-0.5 flex items-center justify-center">
+            !
+          </span>
+        )}
       </button>
       <button onClick={onOpenMarketplace} title={`Skill Marketplace (${installedSkills.length} installed)`} className="relative p-1.5 rounded border border-primary/20 hover:border-primary/60 hover:bg-primary/10 text-primary transition">
         <Store className="w-4 h-4" />
